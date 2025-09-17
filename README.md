@@ -22,25 +22,33 @@ A comprehensive mapping system between leading security frameworks and controls 
 
 ```bash
 # Install dependencies
-npm install
+pip install -r requirements.txt
 
 # Run mapping analysis
-npm run analyze
+python -m mappings.cli analyze frameworks
 
 # Generate compliance reports
-npm run report
+python -m mappings.cli report summary
 ```
 
 ## Project Structure
 
 ```
-├── frameworks/          # Framework definitions and controls
-├── mappings/            # Cross-framework mappings
-├── src/                 # Core mapping logic and utilities
-├── reports/             # Generated compliance reports
-├── examples/            # Usage examples and templates
-└── docs/                # Documentation
+├── mappings/            # Core Python package
+│   ├── core/           # Core mapping logic and models
+│   ├── frameworks/     # Framework definitions
+│   ├── cli/           # Command-line interface
+│   └── utils/         # Utility functions
+├── data/              # Framework data and mappings
+├── tests/             # Test suite
+├── examples/          # Usage examples
+└── docs/              # Documentation
 ```
+
+## Requirements
+
+- Python 3.8+
+- Dependencies listed in requirements.txt
 
 ## Contributing
 

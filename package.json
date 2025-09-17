@@ -1,0 +1,44 @@
+{
+  "name": "@elevated-standards/mappings",
+  "version": "1.0.0",
+  "description": "Comprehensive mapping system between leading security frameworks and controls",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "analyze": "node src/cli/analyze.js",
+    "report": "node src/cli/report.js",
+    "validate": "node src/cli/validate.js",
+    "test": "node --test src/tests/*.test.js",
+    "lint": "eslint src/ --fix"
+  },
+  "keywords": [
+    "security",
+    "compliance",
+    "frameworks",
+    "mapping",
+    "soc2",
+    "fedramp",
+    "iso27001",
+    "nist",
+    "cis",
+    "pci-dss"
+  ],
+  "author": "Elevated Standards",
+  "license": "MIT",
+  "dependencies": {
+    "csv-parser": "^3.0.0",
+    "json2csv": "^5.0.7",
+    "yargs": "^17.7.2"
+  },
+  "devDependencies": {
+    "eslint": "^8.57.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Elevated-Standards/mappings.git"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

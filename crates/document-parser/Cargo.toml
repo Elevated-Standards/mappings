@@ -23,17 +23,13 @@ chrono.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
-validator.workspace = true
-regex.workspace = true
-
-# Document processing
+async-trait.workspace = true
 calamine.workspace = true
 docx-rs.workspace = true
 pulldown-cmark.workspace = true
-
-# Async processing
+validator.workspace = true
+regex.workspace = true
 futures = "0.3"
-async-trait = "0.1"
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }

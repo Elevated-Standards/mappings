@@ -397,3 +397,70 @@ impl ExcelParser {
             .collect()
     }
 }
+
+impl Default for ExcelParser {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[async_trait]
+impl DocumentParser for ExcelParser {
+    /// Parse Excel file from path
+    async fn parse_file(&self, path: &Path) -> Result<ParseResult> {
+        self.parse_excel_file(path).await
+    }
+
+    /// Parse Excel data from bytes
+    async fn parse_bytes(&self, data: &[u8], filename: &str) -> Result<ParseResult> {
+        self.parse_excel_bytes(data, filename).await
+    }
+
+    /// Validate Excel content structure
+    async fn validate(&self, content: &Value) -> Result<Vec<String>> {
+        let mut errors = Vec::new();
+
+        // Validate that content has worksheets
+        if let Some(worksheets) = content.get("worksheets").and_then(|w| w.as_array()) {
+            if worksheets.is_empty() {
+                errors.push("No worksheets found in Excel content".to_string());
+            }
+
+            // Validate each worksheet structure
+            for (idx, worksheet) in worksheets.iter().enumerate() {
+                if let Some(ws_obj) = worksheet.as_object() {
+                    // Check required fields
+                    if !ws_obj.contains_key("name") {
+                        errors.push(format!("Worksheet {} missing 'name' field", idx));
+                    }
+                    if !ws_obj.contains_key("data") {
+                        errors.push(format!("Worksheet {} missing 'data' field", idx));
+                    }
+
+                    // Validate data structure
+                    if let Some(data) = ws_obj.get("data").and_then(|d| d.as_array()) {
+                        for (row_idx, row) in data.iter().enumerate() {
+                            if !row.is_array() {
+                                errors.push(format!(
+                                    "Worksheet {} row {} is not an array",
+                                    idx, row_idx
+                                ));
+                            }
+                        }
+                    }
+                } else {
+                    errors.push(format!("Worksheet {} is not a valid object", idx));
+                }
+            }
+        } else {
+            errors.push("Content does not contain valid worksheets array".to_string());
+        }
+
+        Ok(errors)
+    }
+
+    /// Get supported file extensions for Excel files
+    fn supported_extensions(&self) -> Vec<&'static str> {
+        vec!["xlsx", "xls"]
+    }
+}

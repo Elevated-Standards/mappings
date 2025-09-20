@@ -32,7 +32,7 @@ homepage = "https://github.com/Elevated-Standards/mappings"
 documentation = "https://docs.rs/fedramp-compliance"
 keywords = ["fedramp", "compliance", "oscal", "security", "nist"]
 categories = ["web-programming", "command-line-utilities", "development-tools"]
-rust-version = "1.70"
+rust-version = "1.82"
 
 [workspace.dependencies]
 # Core dependencies
@@ -45,6 +45,8 @@ anyhow = "1.0"
 thiserror = "1.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+async-trait = "0.1"
+futures = "0.3"
 
 # Database
 sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "json"] }
@@ -69,10 +71,12 @@ schemars = { version = "0.8", features = ["uuid1", "chrono"] }
 # Configuration
 config = "0.13"
 clap = { version = "4.4", features = ["derive"] }
+toml = "0.8"
 
 # Security
 argon2 = "0.5"
 jsonwebtoken = "9.2"
+sha2 = "0.10"
 
 # Testing
 mockall = "0.12"

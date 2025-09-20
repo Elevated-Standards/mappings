@@ -16,6 +16,8 @@ use serde_json::{Value, Map};
 use std::path::Path;
 use tokio::fs;
 use tracing::{debug, error, info, warn};
+use chrono::{DateTime, Utc, NaiveDate};
+use uuid::Uuid;
 
 /// Excel-specific parsing errors
 #[derive(Debug, thiserror::Error)]
@@ -2986,4 +2988,1481 @@ mod tests {
 
     // Note: Additional tests would require sample Excel files
     // These should be added when implementing actual parsing logic
+}
+
+/// POA&M-specific Excel parser for FedRAMP POA&M templates
+#[derive(Debug, Clone)]
+pub struct PoamParser {
+    /// Base Excel parser for core functionality
+    base_parser: ExcelParser,
+    /// Template detector for identifying POA&M template versions
+    template_detector: PoamTemplateDetector,
+    /// Field mapper for POA&M-specific column mapping
+    field_mapper: PoamFieldMapper,
+    /// Validator for POA&M business rules
+    validator: PoamValidator,
+    /// Data enricher for calculated fields
+    enricher: PoamDataEnricher,
+}
+
+/// POA&M template detector and version identifier
+#[derive(Debug, Clone)]
+pub struct PoamTemplateDetector {
+    /// Known template signatures
+    template_signatures: Vec<TemplateSignature>,
+}
+
+/// Template signature for identifying POA&M templates
+#[derive(Debug, Clone)]
+pub struct TemplateSignature {
+    /// Template name and version
+    pub name: String,
+    /// Required column patterns
+    pub required_columns: Vec<String>,
+    /// Optional column patterns
+    pub optional_columns: Vec<String>,
+    /// Worksheet names that must be present
+    pub required_worksheets: Vec<String>,
+    /// Template version
+    pub version: String,
+}
+
+/// POA&M field mapper for column-to-field mapping
+#[derive(Debug, Clone)]
+pub struct PoamFieldMapper {
+    /// Column mapping configuration
+    mapping_config: PoamMappingConfig,
+}
+
+/// POA&M mapping configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PoamMappingConfig {
+    /// Required field mappings
+    pub required_columns: std::collections::HashMap<String, PoamFieldMapping>,
+    /// Optional field mappings
+    pub optional_columns: std::collections::HashMap<String, PoamFieldMapping>,
+    /// Validation rules
+    pub validation_rules: std::collections::HashMap<String, ValidationRule>,
+}
+
+/// Individual field mapping configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PoamFieldMapping {
+    /// Possible column names for this field
+    pub column_names: Vec<String>,
+    /// Target OSCAL field path
+    pub oscal_field: String,
+    /// Whether this field is required
+    pub required: bool,
+    /// Validation rule name
+    pub validation: Option<String>,
+    /// Data transformation rule
+    pub transformation: Option<String>,
+}
+
+/// Validation rule for POA&M fields
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ValidationRule {
+    /// Rule type
+    pub rule_type: String,
+    /// Allowed values (for enumeration rules)
+    pub allowed_values: Option<Vec<String>>,
+    /// Pattern for regex validation
+    pub pattern: Option<String>,
+    /// Custom validation logic identifier
+    pub custom_validator: Option<String>,
+}
+
+/// POA&M validator for business rules
+#[derive(Debug, Clone)]
+pub struct PoamValidator {
+    /// Validation rules
+    validation_rules: std::collections::HashMap<String, ValidationRule>,
+}
+
+/// POA&M data enricher for calculated fields
+#[derive(Debug, Clone)]
+pub struct PoamDataEnricher {
+    /// Risk calculation rules
+    risk_calculator: RiskCalculator,
+}
+
+/// Risk calculation engine
+#[derive(Debug, Clone)]
+pub struct RiskCalculator {
+    /// Risk matrix configuration
+    risk_matrix: RiskMatrix,
+}
+
+/// Risk assessment matrix
+#[derive(Debug, Clone)]
+pub struct RiskMatrix {
+    /// Severity to impact mapping
+    pub severity_impact_map: std::collections::HashMap<PoamSeverity, u8>,
+    /// Likelihood scoring
+    pub likelihood_scores: std::collections::HashMap<PoamLikelihood, u8>,
+    /// Risk rating calculation matrix
+    pub risk_ratings: Vec<Vec<RiskRating>>,
+}
+
+/// Comprehensive POA&M item data structure
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PoamItem {
+    /// Unique identifier for the POA&M item
+    pub unique_id: String,
+    /// Weakness or vulnerability name
+    pub weakness_name: String,
+    /// Detailed description of the weakness
+    pub weakness_description: String,
+    /// Source identifier (e.g., scan tool, assessment)
+    pub source_identifier: Option<String>,
+    /// Asset or system identifier
+    pub asset_identifier: Option<String>,
+    /// Security control number(s) affected
+    pub security_controls: Vec<String>,
+    /// Office or organization responsible
+    pub office_organization: Option<String>,
+    /// Security control name(s)
+    pub security_control_names: Vec<String>,
+    /// Implementation guidance
+    pub implementation_guidance: Option<String>,
+    /// Severity level of the weakness
+    pub severity: PoamSeverity,
+    /// Likelihood of exploitation
+    pub likelihood: Option<PoamLikelihood>,
+    /// Impact level if exploited
+    pub impact: Option<PoamImpact>,
+    /// Calculated risk rating
+    pub risk_rating: Option<RiskRating>,
+    /// Current status of the POA&M item
+    pub status: PoamStatus,
+    /// Scheduled completion date
+    pub scheduled_completion_date: Option<DateTime<Utc>>,
+    /// Actual completion date
+    pub actual_completion_date: Option<DateTime<Utc>>,
+    /// Associated milestones
+    pub milestones: Vec<PoamMilestone>,
+    /// Required resources
+    pub resources: Vec<PoamResource>,
+    /// Point of contact information
+    pub point_of_contact: Option<String>,
+    /// Remediation plan description
+    pub remediation_plan: Option<String>,
+    /// Affected assets or components
+    pub affected_assets: Vec<String>,
+    /// Additional comments or notes
+    pub comments: Option<String>,
+    /// Vendor information
+    pub vendor_information: Option<String>,
+    /// Cost estimate for remediation
+    pub cost_estimate: Option<f64>,
+    /// Original detection date
+    pub detection_date: Option<DateTime<Utc>>,
+    /// Last updated timestamp
+    pub last_updated: DateTime<Utc>,
+}
+
+/// POA&M severity levels
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub enum PoamSeverity {
+    /// Critical severity - immediate action required
+    Critical,
+    /// High severity - urgent action required
+    High,
+    /// Moderate severity - timely action required
+    Moderate,
+    /// Low severity - routine action acceptable
+    Low,
+    /// Informational - awareness only
+    Informational,
+}
+
+impl PartialOrd for PoamSeverity {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for PoamSeverity {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        use std::cmp::Ordering;
+        use PoamSeverity::*;
+
+        let self_rank = match self {
+            Critical => 5,
+            High => 4,
+            Moderate => 3,
+            Low => 2,
+            Informational => 1,
+        };
+
+        let other_rank = match other {
+            Critical => 5,
+            High => 4,
+            Moderate => 3,
+            Low => 2,
+            Informational => 1,
+        };
+
+        self_rank.cmp(&other_rank)
+    }
+}
+
+/// POA&M likelihood levels
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum PoamLikelihood {
+    /// Very high likelihood of exploitation
+    VeryHigh,
+    /// High likelihood of exploitation
+    High,
+    /// Moderate likelihood of exploitation
+    Moderate,
+    /// Low likelihood of exploitation
+    Low,
+    /// Very low likelihood of exploitation
+    VeryLow,
+}
+
+/// POA&M impact levels
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+pub enum PoamImpact {
+    /// Very high impact if exploited
+    VeryHigh,
+    /// High impact if exploited
+    High,
+    /// Moderate impact if exploited
+    Moderate,
+    /// Low impact if exploited
+    Low,
+    /// Very low impact if exploited
+    VeryLow,
+}
+
+/// POA&M status values
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum PoamStatus {
+    /// Open - not yet started
+    Open,
+    /// In progress - actively being worked
+    InProgress,
+    /// Completed - remediation finished
+    Completed,
+    /// Accepted - risk accepted by authority
+    Accepted,
+    /// Rejected - POA&M item rejected
+    Rejected,
+    /// Deferred - postponed to future date
+    Deferred,
+    /// Closed - officially closed
+    Closed,
+}
+
+/// Risk rating calculation result
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+pub enum RiskRating {
+    /// Very high risk
+    VeryHigh,
+    /// High risk
+    High,
+    /// Moderate risk
+    Moderate,
+    /// Low risk
+    Low,
+    /// Very low risk
+    VeryLow,
+}
+
+/// POA&M milestone information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PoamMilestone {
+    /// Milestone unique identifier
+    pub id: String,
+    /// Milestone description
+    pub description: String,
+    /// Target completion date
+    pub target_date: Option<DateTime<Utc>>,
+    /// Actual completion date
+    pub completion_date: Option<DateTime<Utc>>,
+    /// Milestone status
+    pub status: MilestoneStatus,
+    /// Responsible party
+    pub responsible_party: Option<String>,
+    /// Progress percentage (0-100)
+    pub progress_percentage: Option<u8>,
+    /// Comments or notes
+    pub comments: Option<String>,
+}
+
+/// Milestone status values
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum MilestoneStatus {
+    /// Not started
+    NotStarted,
+    /// In progress
+    InProgress,
+    /// Completed
+    Completed,
+    /// Delayed
+    Delayed,
+    /// Cancelled
+    Cancelled,
+}
+
+/// POA&M resource information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PoamResource {
+    /// Resource type
+    pub resource_type: ResourceType,
+    /// Resource description
+    pub description: String,
+    /// Estimated cost
+    pub estimated_cost: Option<f64>,
+    /// Required quantity
+    pub quantity: Option<u32>,
+    /// Resource availability date
+    pub availability_date: Option<DateTime<Utc>>,
+    /// Resource provider
+    pub provider: Option<String>,
+}
+
+/// Resource type enumeration
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum ResourceType {
+    /// Personnel resources
+    Personnel,
+    /// Financial resources
+    Financial,
+    /// Technical resources
+    Technical,
+    /// Training resources
+    Training,
+    /// Equipment resources
+    Equipment,
+    /// Software resources
+    Software,
+    /// Other resource type
+    Other(String),
+}
+
+/// POA&M parsing result
+#[derive(Debug, Clone)]
+pub struct PoamParseResult {
+    /// Parsed POA&M items
+    pub items: Vec<PoamItem>,
+    /// Template information
+    pub template_info: TemplateInfo,
+    /// Parsing statistics
+    pub statistics: PoamParsingStatistics,
+    /// Validation results
+    pub validation_results: Vec<PoamValidationResult>,
+    /// Warnings encountered during parsing
+    pub warnings: Vec<String>,
+}
+
+/// Template information
+#[derive(Debug, Clone)]
+pub struct TemplateInfo {
+    /// Template name
+    pub name: String,
+    /// Template version
+    pub version: String,
+    /// Detected worksheets
+    pub worksheets: Vec<String>,
+    /// Column mappings used
+    pub column_mappings: std::collections::HashMap<String, String>,
+}
+
+/// POA&M parsing statistics
+#[derive(Debug, Clone)]
+pub struct PoamParsingStatistics {
+    /// Total rows processed
+    pub total_rows: usize,
+    /// Successfully parsed items
+    pub parsed_items: usize,
+    /// Items with validation errors
+    pub validation_errors: usize,
+    /// Items with warnings
+    pub warnings: usize,
+    /// Processing time
+    pub processing_time: std::time::Duration,
+    /// Memory usage
+    pub memory_usage: Option<usize>,
+}
+
+/// POA&M validation result
+#[derive(Debug, Clone)]
+pub struct PoamValidationResult {
+    /// Row number where validation failed
+    pub row_number: usize,
+    /// Field that failed validation
+    pub field_name: String,
+    /// Validation error message
+    pub error_message: String,
+    /// Severity of the validation error
+    pub severity: crate::validation::ValidationSeverity,
+    /// Suggested fix
+    pub suggested_fix: Option<String>,
+}
+
+impl PoamParser {
+    /// Create a new POA&M parser with default configuration
+    pub fn new() -> Self {
+        Self {
+            base_parser: ExcelParser::new(),
+            template_detector: PoamTemplateDetector::new(),
+            field_mapper: PoamFieldMapper::new(),
+            validator: PoamValidator::new(),
+            enricher: PoamDataEnricher::new(),
+        }
+    }
+
+    /// Create a new POA&M parser with custom configuration
+    pub fn with_config(mapping_config: PoamMappingConfig) -> Self {
+        Self {
+            base_parser: ExcelParser::new(),
+            template_detector: PoamTemplateDetector::new(),
+            field_mapper: PoamFieldMapper::with_config(mapping_config),
+            validator: PoamValidator::new(),
+            enricher: PoamDataEnricher::new(),
+        }
+    }
+
+    /// Parse a POA&M Excel file
+    pub async fn parse_poam<P: AsRef<Path>>(&mut self, file_path: P) -> Result<PoamParseResult> {
+        let start_time = std::time::Instant::now();
+        info!("Starting POA&M parsing for file: {:?}", file_path.as_ref());
+
+        // First, parse the Excel file using the base parser
+        let excel_result = self.base_parser.parse_file(file_path.as_ref()).await?;
+
+        // Detect the POA&M template type and version
+        let template_info = self.template_detector.detect_template(&excel_result)?;
+        info!("Detected POA&M template: {} v{}", template_info.name, template_info.version);
+
+        // Extract POA&M data from the parsed Excel
+        let mut items = Vec::new();
+        let mut validation_results = Vec::new();
+        let mut warnings = Vec::new();
+
+        // Process the main POA&M worksheet
+        if let Some(main_worksheet) = self.find_main_worksheet(&excel_result) {
+            let parse_result = self.parse_poam_worksheet(main_worksheet, &template_info)?;
+            items.extend(parse_result.items);
+            validation_results.extend(parse_result.validation_results);
+            warnings.extend(parse_result.warnings);
+        } else {
+            return Err(Error::document_parsing("No main POA&M worksheet found".to_string()));
+        }
+
+        // Process milestones worksheet if present
+        if let Some(milestones_worksheet) = self.find_milestones_worksheet(&excel_result) {
+            let milestones = self.parse_milestones_worksheet(milestones_worksheet)?;
+            self.associate_milestones(&mut items, milestones);
+        }
+
+        // Process resources worksheet if present
+        if let Some(resources_worksheet) = self.find_resources_worksheet(&excel_result) {
+            let resources = self.parse_resources_worksheet(resources_worksheet)?;
+            self.associate_resources(&mut items, resources);
+        }
+
+        // Enrich data with calculated fields
+        for item in &mut items {
+            self.enricher.enrich_item(item)?;
+        }
+
+        // Validate all items
+        for (index, item) in items.iter().enumerate() {
+            let item_validation = self.validator.validate_item(item, index + 2)?; // +2 for header row
+            validation_results.extend(item_validation);
+        }
+
+        let processing_time = start_time.elapsed();
+        let statistics = PoamParsingStatistics {
+            total_rows: items.len() + 1, // +1 for header
+            parsed_items: items.len(),
+            validation_errors: validation_results.iter().filter(|v| v.severity >= crate::validation::ValidationSeverity::Error).count(),
+            warnings: validation_results.iter().filter(|v| v.severity == crate::validation::ValidationSeverity::Warning).count(),
+            processing_time,
+            memory_usage: None, // TODO: Implement memory tracking
+        };
+
+        info!(
+            "POA&M parsing completed: {} items parsed in {:?}",
+            items.len(),
+            processing_time
+        );
+
+        Ok(PoamParseResult {
+            items,
+            template_info,
+            statistics,
+            validation_results,
+            warnings,
+        })
+    }
+
+    /// Find the main POA&M worksheet
+    fn find_main_worksheet(&self, excel_result: &ParseResult) -> Option<&ExcelWorksheet> {
+        // Look for common POA&M worksheet names
+        let poam_worksheet_names = [
+            "POA&M Items",
+            "POAM Items",
+            "POA&M",
+            "POAM",
+            "Items",
+            "Findings",
+            "Vulnerabilities",
+        ];
+
+        if let Value::Object(content) = &excel_result.content {
+            if let Some(Value::Array(worksheets)) = content.get("worksheets") {
+                for worksheet_value in worksheets {
+                    if let Value::Object(worksheet_obj) = worksheet_value {
+                        if let Some(Value::String(name)) = worksheet_obj.get("name") {
+                            if poam_worksheet_names.iter().any(|&poam_name|
+                                name.to_lowercase().contains(&poam_name.to_lowercase())
+                            ) {
+                                // Convert back to ExcelWorksheet - this is a simplified approach
+                                // In a real implementation, we'd need better data structure handling
+                                return None; // TODO: Implement proper worksheet extraction
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Find the milestones worksheet
+    fn find_milestones_worksheet(&self, _excel_result: &ParseResult) -> Option<&ExcelWorksheet> {
+        // TODO: Implement milestone worksheet detection
+        None
+    }
+
+    /// Find the resources worksheet
+    fn find_resources_worksheet(&self, _excel_result: &ParseResult) -> Option<&ExcelWorksheet> {
+        // TODO: Implement resources worksheet detection
+        None
+    }
+
+    /// Parse the main POA&M worksheet
+    fn parse_poam_worksheet(
+        &self,
+        worksheet: &ExcelWorksheet,
+        template_info: &TemplateInfo,
+    ) -> Result<PoamWorksheetParseResult> {
+        let mut items = Vec::new();
+        let mut validation_results = Vec::new();
+        let warnings = Vec::new();
+
+        // Get column mappings for this template
+        let column_mappings = &template_info.column_mappings;
+
+        // Parse each row (skip header)
+        for (row_index, row_data) in worksheet.data.iter().enumerate().skip(1) {
+            match self.parse_poam_row(row_data, column_mappings, row_index + 1) {
+                Ok(item) => items.push(item),
+                Err(e) => {
+                    validation_results.push(PoamValidationResult {
+                        row_number: row_index + 1,
+                        field_name: "row".to_string(),
+                        error_message: format!("Failed to parse row: {}", e),
+                        severity: crate::validation::ValidationSeverity::Error,
+                        suggested_fix: Some("Check row data format and required fields".to_string()),
+                    });
+                }
+            }
+        }
+
+        Ok(PoamWorksheetParseResult {
+            items,
+            validation_results,
+            warnings,
+        })
+    }
+
+    /// Parse a single POA&M row
+    fn parse_poam_row(
+        &self,
+        row_data: &[Value],
+        column_mappings: &std::collections::HashMap<String, String>,
+        row_number: usize,
+    ) -> Result<PoamItem> {
+        let mut item = PoamItem {
+            unique_id: self.generate_unique_id(),
+            weakness_name: String::new(),
+            weakness_description: String::new(),
+            source_identifier: None,
+            asset_identifier: None,
+            security_controls: Vec::new(),
+            office_organization: None,
+            security_control_names: Vec::new(),
+            implementation_guidance: None,
+            severity: PoamSeverity::Low,
+            likelihood: None,
+            impact: None,
+            risk_rating: None,
+            status: PoamStatus::Open,
+            scheduled_completion_date: None,
+            actual_completion_date: None,
+            milestones: Vec::new(),
+            resources: Vec::new(),
+            point_of_contact: None,
+            remediation_plan: None,
+            affected_assets: Vec::new(),
+            comments: None,
+            vendor_information: None,
+            cost_estimate: None,
+            detection_date: None,
+            last_updated: Utc::now(),
+        };
+
+        // Map each column to the appropriate field
+        for (column_index, cell_value) in row_data.iter().enumerate() {
+            if let Some(field_name) = column_mappings.get(&column_index.to_string()) {
+                self.map_cell_to_field(&mut item, field_name, cell_value, row_number)?;
+            }
+        }
+
+        Ok(item)
+    }
+
+    /// Map a cell value to a POA&M item field
+    fn map_cell_to_field(
+        &self,
+        item: &mut PoamItem,
+        field_name: &str,
+        cell_value: &Value,
+        _row_number: usize,
+    ) -> Result<()> {
+        let cell_str = self.value_to_string(cell_value);
+
+        match field_name {
+            "poam_id" => {
+                if !cell_str.is_empty() {
+                    item.unique_id = cell_str;
+                }
+            }
+            "vulnerability_description" => {
+                item.weakness_description = cell_str.clone();
+                if item.weakness_name.is_empty() {
+                    // Use first 50 characters as weakness name if not set
+                    item.weakness_name = cell_str.chars().take(50).collect::<String>();
+                    if item.weakness_name.len() == 50 {
+                        item.weakness_name.push_str("...");
+                    }
+                }
+            }
+            "security_control" => {
+                if !cell_str.is_empty() {
+                    // Split multiple controls by common delimiters
+                    let controls: Vec<String> = cell_str
+                        .split(&[',', ';', '|', '\n'][..])
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect();
+                    item.security_controls = controls;
+                }
+            }
+            "severity" => {
+                item.severity = self.parse_severity(&cell_str)?;
+            }
+            "poam_status" => {
+                item.status = self.parse_status(&cell_str)?;
+            }
+            "scheduled_completion" => {
+                item.scheduled_completion_date = self.parse_date(&cell_str);
+            }
+            "actual_completion" => {
+                item.actual_completion_date = self.parse_date(&cell_str);
+            }
+            "point_of_contact" => {
+                if !cell_str.is_empty() {
+                    item.point_of_contact = Some(cell_str);
+                }
+            }
+            "remediation_plan" => {
+                if !cell_str.is_empty() {
+                    item.remediation_plan = Some(cell_str);
+                }
+            }
+            "office_organization" => {
+                if !cell_str.is_empty() {
+                    item.office_organization = Some(cell_str);
+                }
+            }
+            "affected_assets" => {
+                if !cell_str.is_empty() {
+                    let assets: Vec<String> = cell_str
+                        .split(&[',', ';', '|', '\n'][..])
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect();
+                    item.affected_assets = assets;
+                }
+            }
+            "comments" => {
+                if !cell_str.is_empty() {
+                    item.comments = Some(cell_str);
+                }
+            }
+            _ => {
+                // Handle other fields or log unknown field
+                debug!("Unknown field mapping: {}", field_name);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Generate a unique ID for POA&M items
+    fn generate_unique_id(&self) -> String {
+        format!("POAM-{}", Uuid::new_v4())
+    }
+
+    /// Convert a JSON value to string
+    fn value_to_string(&self, value: &Value) -> String {
+        match value {
+            Value::String(s) => s.clone(),
+            Value::Number(n) => n.to_string(),
+            Value::Bool(b) => b.to_string(),
+            Value::Null => String::new(),
+            _ => value.to_string(),
+        }
+    }
+
+    /// Parse severity from string
+    fn parse_severity(&self, severity_str: &str) -> Result<PoamSeverity> {
+        let normalized = severity_str.to_lowercase().trim().to_string();
+        match normalized.as_str() {
+            "critical" | "crit" | "4" => Ok(PoamSeverity::Critical),
+            "high" | "3" => Ok(PoamSeverity::High),
+            "moderate" | "medium" | "mod" | "2" => Ok(PoamSeverity::Moderate),
+            "low" | "1" => Ok(PoamSeverity::Low),
+            "informational" | "info" | "0" => Ok(PoamSeverity::Informational),
+            _ => {
+                warn!("Unknown severity value: {}, defaulting to Low", severity_str);
+                Ok(PoamSeverity::Low)
+            }
+        }
+    }
+
+    /// Parse status from string
+    fn parse_status(&self, status_str: &str) -> Result<PoamStatus> {
+        let normalized = status_str.to_lowercase().trim().to_string();
+        match normalized.as_str() {
+            "open" => Ok(PoamStatus::Open),
+            "in progress" | "in-progress" | "inprogress" | "ongoing" => Ok(PoamStatus::InProgress),
+            "completed" | "complete" | "done" => Ok(PoamStatus::Completed),
+            "accepted" | "accept" => Ok(PoamStatus::Accepted),
+            "rejected" | "reject" => Ok(PoamStatus::Rejected),
+            "deferred" | "defer" | "postponed" => Ok(PoamStatus::Deferred),
+            "closed" | "close" => Ok(PoamStatus::Closed),
+            _ => {
+                warn!("Unknown status value: {}, defaulting to Open", status_str);
+                Ok(PoamStatus::Open)
+            }
+        }
+    }
+
+    /// Parse date from string
+    fn parse_date(&self, date_str: &str) -> Option<DateTime<Utc>> {
+        if date_str.trim().is_empty() {
+            return None;
+        }
+
+        // Try various date formats
+        let date_formats = [
+            "%Y-%m-%d",
+            "%m/%d/%Y",
+            "%d/%m/%Y",
+            "%Y-%m-%d %H:%M:%S",
+            "%m/%d/%Y %H:%M:%S",
+            "%d/%m/%Y %H:%M:%S",
+        ];
+
+        for format in &date_formats {
+            if let Ok(naive_date) = NaiveDate::parse_from_str(date_str.trim(), format) {
+                return Some(naive_date.and_hms_opt(0, 0, 0)?.and_utc());
+            }
+        }
+
+        warn!("Failed to parse date: {}", date_str);
+        None
+    }
+
+    /// Parse milestones worksheet
+    fn parse_milestones_worksheet(&self, _worksheet: &ExcelWorksheet) -> Result<Vec<PoamMilestone>> {
+        // TODO: Implement milestone parsing
+        Ok(Vec::new())
+    }
+
+    /// Parse resources worksheet
+    fn parse_resources_worksheet(&self, _worksheet: &ExcelWorksheet) -> Result<Vec<PoamResource>> {
+        // TODO: Implement resource parsing
+        Ok(Vec::new())
+    }
+
+    /// Associate milestones with POA&M items
+    fn associate_milestones(&self, _items: &mut [PoamItem], _milestones: Vec<PoamMilestone>) {
+        // TODO: Implement milestone association logic
+    }
+
+    /// Associate resources with POA&M items
+    fn associate_resources(&self, _items: &mut [PoamItem], _resources: Vec<PoamResource>) {
+        // TODO: Implement resource association logic
+    }
+}
+
+/// Result of parsing a POA&M worksheet
+#[derive(Debug, Clone)]
+struct PoamWorksheetParseResult {
+    /// Parsed items
+    items: Vec<PoamItem>,
+    /// Validation results
+    validation_results: Vec<PoamValidationResult>,
+    /// Warnings
+    warnings: Vec<String>,
+}
+
+impl PoamTemplateDetector {
+    /// Create a new template detector with default signatures
+    pub fn new() -> Self {
+        let mut detector = Self {
+            template_signatures: Vec::new(),
+        };
+        detector.load_default_signatures();
+        detector
+    }
+
+    /// Load default POA&M template signatures
+    fn load_default_signatures(&mut self) {
+        // FedRAMP POA&M v3.0 signature
+        self.template_signatures.push(TemplateSignature {
+            name: "FedRAMP POA&M v3.0".to_string(),
+            required_columns: vec![
+                "POA&M Item ID".to_string(),
+                "Vulnerability Description".to_string(),
+                "Security Control Number".to_string(),
+                "Severity".to_string(),
+                "POA&M Status".to_string(),
+            ],
+            optional_columns: vec![
+                "Office/Organization".to_string(),
+                "Scheduled Completion Date".to_string(),
+                "Point of Contact".to_string(),
+                "Remediation Plan".to_string(),
+            ],
+            required_worksheets: vec!["POA&M Items".to_string()],
+            version: "3.0".to_string(),
+        });
+
+        // Generic POA&M template signature
+        self.template_signatures.push(TemplateSignature {
+            name: "Generic POA&M".to_string(),
+            required_columns: vec![
+                "ID".to_string(),
+                "Description".to_string(),
+                "Status".to_string(),
+            ],
+            optional_columns: vec![
+                "Severity".to_string(),
+                "Due Date".to_string(),
+                "POC".to_string(),
+            ],
+            required_worksheets: vec!["Items".to_string()],
+            version: "1.0".to_string(),
+        });
+    }
+
+    /// Detect POA&M template from parsed Excel result
+    pub fn detect_template(&self, excel_result: &ParseResult) -> Result<TemplateInfo> {
+        // Extract worksheet names and column headers
+        let worksheets = self.extract_worksheet_names(excel_result);
+        let column_headers = self.extract_column_headers(excel_result);
+
+        // Try to match against known signatures
+        for signature in &self.template_signatures {
+            if self.matches_signature(signature, &worksheets, &column_headers) {
+                return Ok(TemplateInfo {
+                    name: signature.name.clone(),
+                    version: signature.version.clone(),
+                    worksheets: worksheets.clone(),
+                    column_mappings: self.create_column_mappings(signature, &column_headers),
+                });
+            }
+        }
+
+        // If no exact match, create a generic template info
+        Ok(TemplateInfo {
+            name: "Unknown POA&M Template".to_string(),
+            version: "Unknown".to_string(),
+            worksheets,
+            column_mappings: std::collections::HashMap::new(),
+        })
+    }
+
+    /// Extract worksheet names from Excel result
+    fn extract_worksheet_names(&self, excel_result: &ParseResult) -> Vec<String> {
+        let mut worksheets = Vec::new();
+
+        if let Value::Object(content) = &excel_result.content {
+            if let Some(Value::Array(worksheet_array)) = content.get("worksheets") {
+                for worksheet_value in worksheet_array {
+                    if let Value::Object(worksheet_obj) = worksheet_value {
+                        if let Some(Value::String(name)) = worksheet_obj.get("name") {
+                            worksheets.push(name.clone());
+                        }
+                    }
+                }
+            }
+        }
+
+        worksheets
+    }
+
+    /// Extract column headers from Excel result
+    fn extract_column_headers(&self, excel_result: &ParseResult) -> Vec<String> {
+        let mut headers = Vec::new();
+
+        if let Value::Object(content) = &excel_result.content {
+            if let Some(Value::Array(worksheet_array)) = content.get("worksheets") {
+                // Get headers from the first worksheet
+                if let Some(Value::Object(first_worksheet)) = worksheet_array.first() {
+                    if let Some(Value::Array(data)) = first_worksheet.get("data") {
+                        if let Some(Value::Array(header_row)) = data.first() {
+                            for header_value in header_row {
+                                if let Value::String(header) = header_value {
+                                    headers.push(header.clone());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        headers
+    }
+
+    /// Check if worksheets and headers match a signature
+    fn matches_signature(
+        &self,
+        signature: &TemplateSignature,
+        worksheets: &[String],
+        headers: &[String],
+    ) -> bool {
+        // Check required worksheets
+        for required_worksheet in &signature.required_worksheets {
+            if !worksheets.iter().any(|w| w.to_lowercase().contains(&required_worksheet.to_lowercase())) {
+                return false;
+            }
+        }
+
+        // Check required columns (at least 70% must match)
+        let required_matches = signature.required_columns.iter()
+            .filter(|&required_col| {
+                headers.iter().any(|header| {
+                    self.fuzzy_column_match(header, required_col)
+                })
+            })
+            .count();
+
+        let match_percentage = required_matches as f64 / signature.required_columns.len() as f64;
+        match_percentage >= 0.7
+    }
+
+    /// Fuzzy match for column names
+    fn fuzzy_column_match(&self, header: &str, pattern: &str) -> bool {
+        let header_lower = header.to_lowercase();
+        let pattern_lower = pattern.to_lowercase();
+
+        // Exact match
+        if header_lower == pattern_lower {
+            return true;
+        }
+
+        // Contains match
+        if header_lower.contains(&pattern_lower) || pattern_lower.contains(&header_lower) {
+            return true;
+        }
+
+        // Remove common words and check again
+        let header_clean = self.clean_column_name(&header_lower);
+        let pattern_clean = self.clean_column_name(&pattern_lower);
+
+        header_clean == pattern_clean ||
+        header_clean.contains(&pattern_clean) ||
+        pattern_clean.contains(&header_clean)
+    }
+
+    /// Clean column name by removing common words
+    fn clean_column_name(&self, name: &str) -> String {
+        let common_words = ["the", "a", "an", "and", "or", "of", "in", "on", "at", "to", "for"];
+        let words: Vec<&str> = name.split_whitespace()
+            .filter(|word| !common_words.contains(&word.to_lowercase().as_str()))
+            .collect();
+        words.join(" ")
+    }
+
+    /// Create column mappings based on signature
+    fn create_column_mappings(
+        &self,
+        signature: &TemplateSignature,
+        headers: &[String],
+    ) -> std::collections::HashMap<String, String> {
+        let mut mappings = std::collections::HashMap::new();
+
+        // Map required columns
+        for (header_index, header) in headers.iter().enumerate() {
+            for required_col in &signature.required_columns {
+                if self.fuzzy_column_match(header, required_col) {
+                    mappings.insert(header_index.to_string(), self.map_column_to_field(required_col));
+                    break;
+                }
+            }
+        }
+
+        mappings
+    }
+
+    /// Map column name to field name
+    fn map_column_to_field(&self, column_name: &str) -> String {
+        match column_name.to_lowercase().as_str() {
+            s if s.contains("id") => "poam_id".to_string(),
+            s if s.contains("description") || s.contains("vulnerability") => "vulnerability_description".to_string(),
+            s if s.contains("control") => "security_control".to_string(),
+            s if s.contains("severity") => "severity".to_string(),
+            s if s.contains("status") => "poam_status".to_string(),
+            s if s.contains("completion") && s.contains("scheduled") => "scheduled_completion".to_string(),
+            s if s.contains("completion") && s.contains("actual") => "actual_completion".to_string(),
+            s if s.contains("contact") || s.contains("poc") => "point_of_contact".to_string(),
+            s if s.contains("remediation") || s.contains("plan") => "remediation_plan".to_string(),
+            s if s.contains("organization") || s.contains("office") => "office_organization".to_string(),
+            s if s.contains("asset") => "affected_assets".to_string(),
+            s if s.contains("comment") => "comments".to_string(),
+            _ => column_name.to_lowercase().replace(" ", "_"),
+        }
+    }
+}
+
+impl PoamFieldMapper {
+    /// Create a new field mapper with default configuration
+    pub fn new() -> Self {
+        Self {
+            mapping_config: PoamMappingConfig::default(),
+        }
+    }
+
+    /// Create a new field mapper with custom configuration
+    pub fn with_config(config: PoamMappingConfig) -> Self {
+        Self {
+            mapping_config: config,
+        }
+    }
+}
+
+impl Default for PoamMappingConfig {
+    fn default() -> Self {
+        Self {
+            required_columns: std::collections::HashMap::new(),
+            optional_columns: std::collections::HashMap::new(),
+            validation_rules: std::collections::HashMap::new(),
+        }
+    }
+}
+
+impl PoamValidator {
+    /// Create a new POA&M validator
+    pub fn new() -> Self {
+        Self {
+            validation_rules: std::collections::HashMap::new(),
+        }
+    }
+
+    /// Validate a POA&M item
+    pub fn validate_item(&self, item: &PoamItem, row_number: usize) -> Result<Vec<PoamValidationResult>> {
+        let mut results = Vec::new();
+
+        // Validate required fields
+        if item.unique_id.is_empty() {
+            results.push(PoamValidationResult {
+                row_number,
+                field_name: "unique_id".to_string(),
+                error_message: "POA&M ID is required".to_string(),
+                severity: crate::validation::ValidationSeverity::Error,
+                suggested_fix: Some("Provide a unique identifier for this POA&M item".to_string()),
+            });
+        }
+
+        if item.weakness_description.is_empty() {
+            results.push(PoamValidationResult {
+                row_number,
+                field_name: "weakness_description".to_string(),
+                error_message: "Vulnerability description is required".to_string(),
+                severity: crate::validation::ValidationSeverity::Error,
+                suggested_fix: Some("Provide a detailed description of the vulnerability".to_string()),
+            });
+        }
+
+        // Validate date consistency
+        if let (Some(scheduled), Some(actual)) = (&item.scheduled_completion_date, &item.actual_completion_date) {
+            if actual < scheduled {
+                results.push(PoamValidationResult {
+                    row_number,
+                    field_name: "actual_completion_date".to_string(),
+                    error_message: "Actual completion date is before scheduled completion date".to_string(),
+                    severity: crate::validation::ValidationSeverity::Warning,
+                    suggested_fix: Some("Verify the completion dates are correct".to_string()),
+                });
+            }
+        }
+
+        // Validate status transitions
+        if item.status == PoamStatus::Completed && item.actual_completion_date.is_none() {
+            results.push(PoamValidationResult {
+                row_number,
+                field_name: "actual_completion_date".to_string(),
+                error_message: "Completed items must have an actual completion date".to_string(),
+                severity: crate::validation::ValidationSeverity::Error,
+                suggested_fix: Some("Provide the actual completion date for completed items".to_string()),
+            });
+        }
+
+        Ok(results)
+    }
+}
+
+impl PoamDataEnricher {
+    /// Create a new data enricher
+    pub fn new() -> Self {
+        Self {
+            risk_calculator: RiskCalculator::new(),
+        }
+    }
+
+    /// Enrich a POA&M item with calculated fields
+    pub fn enrich_item(&self, item: &mut PoamItem) -> Result<()> {
+        // Calculate risk rating if not already set
+        if item.risk_rating.is_none() {
+            item.risk_rating = self.risk_calculator.calculate_risk(&item.severity, item.likelihood.as_ref());
+        }
+
+        // Set default likelihood based on severity if not provided
+        if item.likelihood.is_none() {
+            item.likelihood = Some(self.default_likelihood_for_severity(&item.severity));
+        }
+
+        // Set default impact based on severity if not provided
+        if item.impact.is_none() {
+            item.impact = Some(self.default_impact_for_severity(&item.severity));
+        }
+
+        Ok(())
+    }
+
+    /// Get default likelihood for a severity level
+    fn default_likelihood_for_severity(&self, severity: &PoamSeverity) -> PoamLikelihood {
+        match severity {
+            PoamSeverity::Critical => PoamLikelihood::High,
+            PoamSeverity::High => PoamLikelihood::Moderate,
+            PoamSeverity::Moderate => PoamLikelihood::Moderate,
+            PoamSeverity::Low => PoamLikelihood::Low,
+            PoamSeverity::Informational => PoamLikelihood::VeryLow,
+        }
+    }
+
+    /// Get default impact for a severity level
+    fn default_impact_for_severity(&self, severity: &PoamSeverity) -> PoamImpact {
+        match severity {
+            PoamSeverity::Critical => PoamImpact::VeryHigh,
+            PoamSeverity::High => PoamImpact::High,
+            PoamSeverity::Moderate => PoamImpact::Moderate,
+            PoamSeverity::Low => PoamImpact::Low,
+            PoamSeverity::Informational => PoamImpact::VeryLow,
+        }
+    }
+}
+
+impl RiskCalculator {
+    /// Create a new risk calculator
+    pub fn new() -> Self {
+        Self {
+            risk_matrix: RiskMatrix::default(),
+        }
+    }
+
+    /// Calculate risk rating based on severity and likelihood
+    pub fn calculate_risk(&self, severity: &PoamSeverity, likelihood: Option<&PoamLikelihood>) -> Option<RiskRating> {
+        let likelihood = likelihood.unwrap_or(&PoamLikelihood::Moderate);
+
+        let severity_score = self.risk_matrix.severity_impact_map.get(severity).copied().unwrap_or(2);
+        let likelihood_score = self.risk_matrix.likelihood_scores.get(likelihood).copied().unwrap_or(2);
+
+        // Simple risk calculation: multiply severity and likelihood scores
+        let risk_score = severity_score * likelihood_score;
+
+        match risk_score {
+            16..=25 => Some(RiskRating::VeryHigh),
+            12..=15 => Some(RiskRating::High),
+            6..=11 => Some(RiskRating::Moderate),
+            3..=5 => Some(RiskRating::Low),
+            1..=2 => Some(RiskRating::VeryLow),
+            _ => Some(RiskRating::Low),
+        }
+    }
+}
+
+impl Default for RiskMatrix {
+    fn default() -> Self {
+        let mut severity_impact_map = std::collections::HashMap::new();
+        severity_impact_map.insert(PoamSeverity::Critical, 5);
+        severity_impact_map.insert(PoamSeverity::High, 4);
+        severity_impact_map.insert(PoamSeverity::Moderate, 3);
+        severity_impact_map.insert(PoamSeverity::Low, 2);
+        severity_impact_map.insert(PoamSeverity::Informational, 1);
+
+        let mut likelihood_scores = std::collections::HashMap::new();
+        likelihood_scores.insert(PoamLikelihood::VeryHigh, 5);
+        likelihood_scores.insert(PoamLikelihood::High, 4);
+        likelihood_scores.insert(PoamLikelihood::Moderate, 3);
+        likelihood_scores.insert(PoamLikelihood::Low, 2);
+        likelihood_scores.insert(PoamLikelihood::VeryLow, 1);
+
+        Self {
+            severity_impact_map,
+            likelihood_scores,
+            risk_ratings: Vec::new(), // TODO: Implement full risk matrix
+        }
+    }
+}
+
+#[cfg(test)]
+mod poam_tests {
+    use super::*;
+
+    #[test]
+    fn test_poam_parser_creation() {
+        let parser = PoamParser::new();
+        assert!(!parser.template_detector.template_signatures.is_empty());
+    }
+
+    #[test]
+    fn test_poam_severity_parsing() {
+        let parser = PoamParser::new();
+
+        assert_eq!(parser.parse_severity("Critical").unwrap(), PoamSeverity::Critical);
+        assert_eq!(parser.parse_severity("HIGH").unwrap(), PoamSeverity::High);
+        assert_eq!(parser.parse_severity("moderate").unwrap(), PoamSeverity::Moderate);
+        assert_eq!(parser.parse_severity("Low").unwrap(), PoamSeverity::Low);
+        assert_eq!(parser.parse_severity("info").unwrap(), PoamSeverity::Informational);
+        assert_eq!(parser.parse_severity("unknown").unwrap(), PoamSeverity::Low); // Default
+    }
+
+    #[test]
+    fn test_poam_status_parsing() {
+        let parser = PoamParser::new();
+
+        assert_eq!(parser.parse_status("Open").unwrap(), PoamStatus::Open);
+        assert_eq!(parser.parse_status("IN PROGRESS").unwrap(), PoamStatus::InProgress);
+        assert_eq!(parser.parse_status("completed").unwrap(), PoamStatus::Completed);
+        assert_eq!(parser.parse_status("Accepted").unwrap(), PoamStatus::Accepted);
+        assert_eq!(parser.parse_status("unknown").unwrap(), PoamStatus::Open); // Default
+    }
+
+    #[test]
+    fn test_poam_date_parsing() {
+        let parser = PoamParser::new();
+
+        assert!(parser.parse_date("2024-12-31").is_some());
+        assert!(parser.parse_date("12/31/2024").is_some());
+        assert!(parser.parse_date("31/12/2024").is_some());
+        assert!(parser.parse_date("").is_none());
+        assert!(parser.parse_date("invalid-date").is_none());
+    }
+
+    #[test]
+    fn test_template_detector_fuzzy_matching() {
+        let detector = PoamTemplateDetector::new();
+
+        assert!(detector.fuzzy_column_match("POA&M Item ID", "POA&M Item ID"));
+        assert!(detector.fuzzy_column_match("POAM ID", "POA&M Item ID"));
+        assert!(detector.fuzzy_column_match("Item ID", "POA&M Item ID"));
+        assert!(detector.fuzzy_column_match("Vulnerability Description", "Description"));
+        assert!(!detector.fuzzy_column_match("Unrelated Column", "POA&M Item ID"));
+    }
+
+    #[test]
+    fn test_risk_calculator() {
+        let calculator = RiskCalculator::new();
+
+        let risk = calculator.calculate_risk(&PoamSeverity::Critical, Some(&PoamLikelihood::High));
+        assert_eq!(risk, Some(RiskRating::VeryHigh));
+
+        let risk = calculator.calculate_risk(&PoamSeverity::Low, Some(&PoamLikelihood::Low));
+        assert_eq!(risk, Some(RiskRating::Low));
+
+        let risk = calculator.calculate_risk(&PoamSeverity::Moderate, None);
+        assert!(risk.is_some()); // Should use default likelihood
+    }
+
+    #[test]
+    fn test_poam_item_validation() {
+        let validator = PoamValidator::new();
+
+        // Valid item
+        let valid_item = PoamItem {
+            unique_id: "POAM-001".to_string(),
+            weakness_name: "Test Weakness".to_string(),
+            weakness_description: "Test description".to_string(),
+            source_identifier: None,
+            asset_identifier: None,
+            security_controls: vec!["AC-1".to_string()],
+            office_organization: None,
+            security_control_names: Vec::new(),
+            implementation_guidance: None,
+            severity: PoamSeverity::High,
+            likelihood: Some(PoamLikelihood::Moderate),
+            impact: Some(PoamImpact::High),
+            risk_rating: Some(RiskRating::High),
+            status: PoamStatus::Open,
+            scheduled_completion_date: Some(Utc::now() + chrono::Duration::days(30)),
+            actual_completion_date: None,
+            milestones: Vec::new(),
+            resources: Vec::new(),
+            point_of_contact: Some("John Doe".to_string()),
+            remediation_plan: Some("Fix the issue".to_string()),
+            affected_assets: vec!["Server-01".to_string()],
+            comments: None,
+            vendor_information: None,
+            cost_estimate: None,
+            detection_date: None,
+            last_updated: Utc::now(),
+        };
+
+        let results = validator.validate_item(&valid_item, 1).unwrap();
+        assert!(results.is_empty()); // No validation errors
+
+        // Invalid item (missing required fields)
+        let invalid_item = PoamItem {
+            unique_id: "".to_string(), // Missing ID
+            weakness_description: "".to_string(), // Missing description
+            status: PoamStatus::Completed,
+            actual_completion_date: None, // Completed but no completion date
+            ..valid_item.clone()
+        };
+
+        let results = validator.validate_item(&invalid_item, 1).unwrap();
+        assert!(!results.is_empty()); // Should have validation errors
+        assert!(results.iter().any(|r| r.field_name == "unique_id"));
+        assert!(results.iter().any(|r| r.field_name == "weakness_description"));
+        assert!(results.iter().any(|r| r.field_name == "actual_completion_date"));
+    }
+
+    #[test]
+    fn test_poam_data_enricher() {
+        let enricher = PoamDataEnricher::new();
+
+        let mut item = PoamItem {
+            unique_id: "POAM-001".to_string(),
+            weakness_name: "Test".to_string(),
+            weakness_description: "Test".to_string(),
+            source_identifier: None,
+            asset_identifier: None,
+            security_controls: Vec::new(),
+            office_organization: None,
+            security_control_names: Vec::new(),
+            implementation_guidance: None,
+            severity: PoamSeverity::High,
+            likelihood: None, // Will be enriched
+            impact: None, // Will be enriched
+            risk_rating: None, // Will be enriched
+            status: PoamStatus::Open,
+            scheduled_completion_date: None,
+            actual_completion_date: None,
+            milestones: Vec::new(),
+            resources: Vec::new(),
+            point_of_contact: None,
+            remediation_plan: None,
+            affected_assets: Vec::new(),
+            comments: None,
+            vendor_information: None,
+            cost_estimate: None,
+            detection_date: None,
+            last_updated: Utc::now(),
+        };
+
+        enricher.enrich_item(&mut item).unwrap();
+
+        assert!(item.likelihood.is_some());
+        assert!(item.impact.is_some());
+        assert!(item.risk_rating.is_some());
+    }
+
+    #[test]
+    fn test_poam_severity_ordering() {
+        assert!(PoamSeverity::Critical > PoamSeverity::High);
+        assert!(PoamSeverity::High > PoamSeverity::Moderate);
+        assert!(PoamSeverity::Moderate > PoamSeverity::Low);
+        assert!(PoamSeverity::Low > PoamSeverity::Informational);
+    }
+
+    #[test]
+    fn test_poam_likelihood_ordering() {
+        assert!(PoamLikelihood::VeryHigh > PoamLikelihood::High);
+        assert!(PoamLikelihood::High > PoamLikelihood::Moderate);
+        assert!(PoamLikelihood::Moderate > PoamLikelihood::Low);
+        assert!(PoamLikelihood::Low > PoamLikelihood::VeryLow);
+    }
+
+    #[test]
+    fn test_risk_rating_ordering() {
+        assert!(RiskRating::VeryHigh > RiskRating::High);
+        assert!(RiskRating::High > RiskRating::Moderate);
+        assert!(RiskRating::Moderate > RiskRating::Low);
+        assert!(RiskRating::Low > RiskRating::VeryLow);
+    }
+
+    #[test]
+    fn test_poam_serialization() {
+        let item = PoamItem {
+            unique_id: "POAM-001".to_string(),
+            weakness_name: "Test Weakness".to_string(),
+            weakness_description: "Test description".to_string(),
+            source_identifier: Some("Scanner-1".to_string()),
+            asset_identifier: Some("Asset-1".to_string()),
+            security_controls: vec!["AC-1".to_string(), "AC-2".to_string()],
+            office_organization: Some("IT Department".to_string()),
+            security_control_names: vec!["Access Control".to_string()],
+            implementation_guidance: Some("Implement proper controls".to_string()),
+            severity: PoamSeverity::High,
+            likelihood: Some(PoamLikelihood::Moderate),
+            impact: Some(PoamImpact::High),
+            risk_rating: Some(RiskRating::High),
+            status: PoamStatus::InProgress,
+            scheduled_completion_date: Some(Utc::now()),
+            actual_completion_date: None,
+            milestones: Vec::new(),
+            resources: Vec::new(),
+            point_of_contact: Some("John Doe".to_string()),
+            remediation_plan: Some("Fix the vulnerability".to_string()),
+            affected_assets: vec!["Server-01".to_string(), "Server-02".to_string()],
+            comments: Some("Additional notes".to_string()),
+            vendor_information: Some("Vendor ABC".to_string()),
+            cost_estimate: Some(5000.0),
+            detection_date: Some(Utc::now()),
+            last_updated: Utc::now(),
+        };
+
+        let json = serde_json::to_string(&item).unwrap();
+        assert!(json.contains("POAM-001"));
+        assert!(json.contains("Test Weakness"));
+
+        let deserialized: PoamItem = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.unique_id, item.unique_id);
+        assert_eq!(deserialized.severity, item.severity);
+    }
 }

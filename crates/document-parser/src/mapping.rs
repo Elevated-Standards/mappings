@@ -463,6 +463,27 @@ pub struct MappingConfigurationLoader {
     watcher: Option<notify::RecommendedWatcher>,
     /// Reload notification channel
     reload_tx: Option<mpsc::UnboundedSender<PathBuf>>,
+    /// Configuration backup for rollback
+    config_backup: Arc<RwLock<Option<MappingConfiguration>>>,
+    /// File modification times for change detection
+    file_mtimes: Arc<RwLock<HashMap<PathBuf, std::time::SystemTime>>>,
+    /// Loading performance metrics
+    load_metrics: Arc<RwLock<LoadingMetrics>>,
+}
+
+/// Loading performance metrics
+#[derive(Debug, Clone, Default)]
+pub struct LoadingMetrics {
+    /// Total loading time in milliseconds
+    pub total_load_time_ms: u64,
+    /// Individual file loading times
+    pub file_load_times: HashMap<String, u64>,
+    /// Number of successful loads
+    pub successful_loads: u64,
+    /// Number of failed loads
+    pub failed_loads: u64,
+    /// Last load timestamp
+    pub last_load_time: Option<std::time::SystemTime>,
 }
 
 /// Hot-reload event handler
@@ -481,6 +502,9 @@ impl MappingConfigurationLoader {
             cached_config: Arc::new(RwLock::new(None)),
             watcher: None,
             reload_tx: None,
+            config_backup: Arc::new(RwLock::new(None)),
+            file_mtimes: Arc::new(RwLock::new(HashMap::new())),
+            load_metrics: Arc::new(RwLock::new(LoadingMetrics::default())),
         }
     }
 
@@ -493,6 +517,9 @@ impl MappingConfigurationLoader {
             cached_config: Arc::new(RwLock::new(None)),
             watcher: None,
             reload_tx: Some(reload_tx),
+            config_backup: Arc::new(RwLock::new(None)),
+            file_mtimes: Arc::new(RwLock::new(HashMap::new())),
+            load_metrics: Arc::new(RwLock::new(LoadingMetrics::default())),
         };
 
         // Set up file system watcher
@@ -547,6 +574,9 @@ impl MappingConfigurationLoader {
                 cached_config: Arc::clone(&loader_ref.cached_config),
                 watcher: None, // Don't clone the watcher
                 reload_tx: None, // Don't clone the sender
+                config_backup: Arc::clone(&loader_ref.config_backup),
+                file_mtimes: Arc::clone(&loader_ref.file_mtimes),
+                load_metrics: Arc::clone(&loader_ref.load_metrics),
             }
         };
 
@@ -614,6 +644,140 @@ impl MappingConfigurationLoader {
         Ok(config)
     }
 
+    /// Load all configurations with enhanced performance and error handling
+    pub async fn load_all_configurations_optimized(&mut self) -> Result<MappingConfiguration> {
+        let start_time = std::time::Instant::now();
+        info!("Loading all mapping configurations (optimized) from {}", self.base_dir.display());
+
+        // Create backup of current configuration for rollback
+        self.create_configuration_backup().await?;
+
+        let mut config = MappingConfiguration {
+            inventory_mappings: None,
+            poam_mappings: None,
+            ssp_sections: None,
+            controls: None,
+            documents: None,
+        };
+
+        let mut load_errors = Vec::new();
+        let mut file_times = HashMap::new();
+
+        // Load configurations in parallel for better performance
+        let (inventory_result, poam_result, ssp_result, controls_result, documents_result) = tokio::join!(
+            self.load_inventory_mappings_with_timing(),
+            self.load_poam_mappings_with_timing(),
+            self.load_ssp_sections_with_timing(),
+            self.load_control_mappings_with_timing(),
+            self.load_document_structures_with_timing()
+        );
+
+        // Process results and collect errors
+        if let Ok((inventory, load_time)) = inventory_result {
+            config.inventory_mappings = Some(inventory);
+            file_times.insert("inventory_mappings.json".to_string(), load_time);
+            info!("Successfully loaded inventory mappings in {}ms", load_time);
+        } else if let Err(e) = inventory_result {
+            load_errors.push(format!("Failed to load inventory mappings: {}", e));
+            warn!("Failed to load inventory mappings: {}", e);
+        }
+
+        if let Ok((poam, load_time)) = poam_result {
+            config.poam_mappings = Some(poam);
+            file_times.insert("poam_mappings.json".to_string(), load_time);
+            info!("Successfully loaded POA&M mappings in {}ms", load_time);
+        } else if let Err(e) = poam_result {
+            load_errors.push(format!("Failed to load POA&M mappings: {}", e));
+            warn!("Failed to load POA&M mappings: {}", e);
+        }
+
+        if let Ok((ssp, load_time)) = ssp_result {
+            config.ssp_sections = Some(ssp);
+            file_times.insert("ssp_sections.json".to_string(), load_time);
+            info!("Successfully loaded SSP sections in {}ms", load_time);
+        } else if let Err(e) = ssp_result {
+            load_errors.push(format!("Failed to load SSP sections: {}", e));
+            warn!("Failed to load SSP sections: {}", e);
+        }
+
+        if let Ok((controls, load_time)) = controls_result {
+            config.controls = Some(controls);
+            file_times.insert("_controls.json".to_string(), load_time);
+            info!("Successfully loaded control mappings in {}ms", load_time);
+        } else if let Err(e) = controls_result {
+            load_errors.push(format!("Failed to load control mappings: {}", e));
+            warn!("Failed to load control mappings: {}", e);
+        }
+
+        if let Ok((documents, load_time)) = documents_result {
+            config.documents = Some(documents);
+            file_times.insert("_document.json".to_string(), load_time);
+            info!("Successfully loaded document structures in {}ms", load_time);
+        } else if let Err(e) = documents_result {
+            load_errors.push(format!("Failed to load document structures: {}", e));
+            warn!("Failed to load document structures: {}", e);
+        }
+
+        let total_time = start_time.elapsed().as_millis() as u64;
+
+        // Check if we have at least some critical configurations loaded
+        let has_inventory = config.inventory_mappings.is_some();
+        let has_poam = config.poam_mappings.is_some();
+        let has_ssp = config.ssp_sections.is_some();
+
+        debug!("Configuration loading status: inventory={}, poam={}, ssp={}, errors={}",
+               has_inventory, has_poam, has_ssp, load_errors.len());
+
+        if !has_inventory && !has_poam && !has_ssp {
+            // Update metrics with failure
+            self.update_load_metrics(total_time, file_times, false).await;
+            return Err(Error::document_parsing(format!(
+                "Failed to load any critical mapping configurations. Errors: {}",
+                load_errors.join("; ")
+            )));
+        }
+
+        // Validate configuration before caching
+        match self.validate_configuration(&config) {
+            Ok(warnings) => {
+                if !warnings.is_empty() {
+                    debug!("Configuration validation warnings: {:?}", warnings);
+                }
+                debug!("Configuration validation passed");
+            }
+            Err(validation_errors) => {
+                warn!("Configuration validation failed, attempting rollback: {:?}", validation_errors);
+                self.rollback_configuration().await?;
+                // Update metrics with failure
+                self.update_load_metrics(total_time, file_times, false).await;
+                return Err(Error::document_parsing(format!(
+                    "Configuration validation failed: {:?}",
+                    validation_errors
+                )));
+            }
+        }
+
+        // Update metrics with success (critical configs loaded and validation passed)
+        let success = has_inventory || has_poam || has_ssp; // At least one critical config loaded
+        debug!("Updating metrics with success={}", success);
+        self.update_load_metrics(total_time, file_times, success).await;
+
+        // Atomically update cached configuration
+        {
+            let mut cache = self.cached_config.write().unwrap();
+            *cache = Some(config.clone());
+        }
+
+        info!("Successfully loaded mapping configurations in {}ms", total_time);
+
+        // Ensure we meet the sub-100ms requirement for performance
+        if total_time > 100 {
+            warn!("Configuration loading took {}ms, exceeding 100ms target", total_time);
+        }
+
+        Ok(config)
+    }
+
     /// Load inventory mappings from JSON file
     pub async fn load_inventory_mappings(&self) -> Result<InventoryMappings> {
         let path = self.base_dir.join("mappings").join("inventory_mappings.json");
@@ -662,7 +826,7 @@ impl MappingConfigurationLoader {
         self.load_json_file(&path).await
     }
 
-    /// Generic JSON file loader with error handling
+    /// Generic JSON file loader with enhanced error handling and change detection
     async fn load_json_file<T>(&self, path: &Path) -> Result<T>
     where
         T: for<'de> Deserialize<'de>,
@@ -672,25 +836,69 @@ impl MappingConfigurationLoader {
         // Check if file exists
         if !path.exists() {
             return Err(Error::document_parsing(format!(
-                "Configuration file not found: {}",
+                "Configuration file not found: {}. Please ensure the file exists and is accessible.",
                 path.display()
             )));
         }
 
-        // Read file contents
-        let contents = fs::read_to_string(path).await.map_err(|e| {
+        // Get file metadata for change detection
+        let metadata = fs::metadata(path).await.map_err(|e| {
             Error::document_parsing(format!(
-                "Failed to read file {}: {}",
+                "Failed to read file metadata for {}: {}",
                 path.display(),
                 e
             ))
         })?;
 
-        // Parse JSON
-        serde_json::from_str(&contents).map_err(|e| {
+        let modified_time = metadata.modified().map_err(|e| {
             Error::document_parsing(format!(
-                "Failed to parse JSON from {}: {}",
+                "Failed to get modification time for {}: {}",
                 path.display(),
+                e
+            ))
+        })?;
+
+        // Update file modification time tracking
+        {
+            let mut mtimes = self.file_mtimes.write().unwrap();
+            mtimes.insert(path.to_path_buf(), modified_time);
+        }
+
+        // Check file size for reasonable limits (prevent loading extremely large files)
+        let file_size = metadata.len();
+        if file_size > 10 * 1024 * 1024 { // 10MB limit
+            return Err(Error::document_parsing(format!(
+                "Configuration file {} is too large ({} bytes). Maximum size is 10MB.",
+                path.display(),
+                file_size
+            )));
+        }
+
+        // Read file contents with better error context
+        let contents = fs::read_to_string(path).await.map_err(|e| {
+            Error::document_parsing(format!(
+                "Failed to read file {}: {}. Please check file permissions and encoding.",
+                path.display(),
+                e
+            ))
+        })?;
+
+        // Validate JSON is not empty
+        if contents.trim().is_empty() {
+            return Err(Error::document_parsing(format!(
+                "Configuration file {} is empty",
+                path.display()
+            )));
+        }
+
+        // Parse JSON with detailed error information
+        serde_json::from_str(&contents).map_err(|e| {
+            let line_col = format!(" at line {}, column {}", e.line(), e.column());
+
+            Error::document_parsing(format!(
+                "Failed to parse JSON from {}{}: {}. Please check the JSON syntax and structure.",
+                path.display(),
+                line_col,
                 e
             ))
         })
@@ -721,6 +929,160 @@ impl MappingConfigurationLoader {
     pub fn clear_cache(&self) {
         let mut cache = self.cached_config.write().unwrap();
         *cache = None;
+    }
+
+    /// Create backup of current configuration for rollback capability
+    async fn create_configuration_backup(&self) -> Result<()> {
+        let current_config = {
+            let cache = self.cached_config.read().unwrap();
+            cache.clone()
+        };
+
+        if let Some(config) = current_config {
+            let mut backup = self.config_backup.write().unwrap();
+            *backup = Some(config);
+            debug!("Created configuration backup");
+        }
+
+        Ok(())
+    }
+
+    /// Rollback to previous configuration
+    pub async fn rollback_configuration(&self) -> Result<()> {
+        let backup_config = {
+            let backup = self.config_backup.read().unwrap();
+            backup.clone()
+        };
+
+        if let Some(config) = backup_config {
+            let mut cache = self.cached_config.write().unwrap();
+            *cache = Some(config);
+            info!("Successfully rolled back to previous configuration");
+        } else {
+            warn!("No backup configuration available for rollback");
+        }
+
+        Ok(())
+    }
+
+    /// Update loading performance metrics
+    async fn update_load_metrics(&self, total_time: u64, file_times: HashMap<String, u64>, success: bool) {
+        let mut metrics = self.load_metrics.write().unwrap();
+        metrics.total_load_time_ms = total_time;
+        metrics.file_load_times = file_times;
+        metrics.last_load_time = Some(std::time::SystemTime::now());
+
+        if success {
+            metrics.successful_loads += 1;
+        } else {
+            metrics.failed_loads += 1;
+        }
+    }
+
+    /// Get loading performance metrics
+    pub fn get_load_metrics(&self) -> LoadingMetrics {
+        let metrics = self.load_metrics.read().unwrap();
+        metrics.clone()
+    }
+
+    /// Load inventory mappings with timing
+    async fn load_inventory_mappings_with_timing(&self) -> Result<(InventoryMappings, u64)> {
+        let start = std::time::Instant::now();
+        let result = self.load_inventory_mappings().await?;
+        let elapsed = start.elapsed().as_millis() as u64;
+        Ok((result, elapsed))
+    }
+
+    /// Load POA&M mappings with timing
+    async fn load_poam_mappings_with_timing(&self) -> Result<(PoamMappings, u64)> {
+        let start = std::time::Instant::now();
+        let result = self.load_poam_mappings().await?;
+        let elapsed = start.elapsed().as_millis() as u64;
+        Ok((result, elapsed))
+    }
+
+    /// Load SSP sections with timing
+    async fn load_ssp_sections_with_timing(&self) -> Result<(SspSections, u64)> {
+        let start = std::time::Instant::now();
+        let result = self.load_ssp_sections().await?;
+        let elapsed = start.elapsed().as_millis() as u64;
+        Ok((result, elapsed))
+    }
+
+    /// Load control mappings with timing
+    async fn load_control_mappings_with_timing(&self) -> Result<(ControlMappings, u64)> {
+        let start = std::time::Instant::now();
+        let result = self.load_control_mappings().await?;
+        let elapsed = start.elapsed().as_millis() as u64;
+        Ok((result, elapsed))
+    }
+
+    /// Load document structures with timing
+    async fn load_document_structures_with_timing(&self) -> Result<(DocumentStructures, u64)> {
+        let start = std::time::Instant::now();
+        let result = self.load_document_structures().await?;
+        let elapsed = start.elapsed().as_millis() as u64;
+        Ok((result, elapsed))
+    }
+
+    /// Check if configuration files have changed since last load
+    pub async fn has_configuration_changed(&self) -> Result<bool> {
+        let file_paths = vec![
+            self.base_dir.join("mappings").join("inventory_mappings.json"),
+            self.base_dir.join("mappings").join("poam_mappings.json"),
+            self.base_dir.join("mappings").join("ssp_sections.json"),
+            self.base_dir.join("schema").join("_controls.json"),
+            self.base_dir.join("schema").join("_document.json"),
+        ];
+
+        let mtimes = self.file_mtimes.read().unwrap();
+
+        for path in file_paths {
+            if !path.exists() {
+                continue; // Skip non-existent files
+            }
+
+            let metadata = fs::metadata(&path).await.map_err(|e| {
+                Error::document_parsing(format!(
+                    "Failed to read metadata for {}: {}",
+                    path.display(),
+                    e
+                ))
+            })?;
+
+            let current_mtime = metadata.modified().map_err(|e| {
+                Error::document_parsing(format!(
+                    "Failed to get modification time for {}: {}",
+                    path.display(),
+                    e
+                ))
+            })?;
+
+            if let Some(cached_mtime) = mtimes.get(&path) {
+                if current_mtime > *cached_mtime {
+                    debug!("Configuration file {} has changed", path.display());
+                    return Ok(true);
+                }
+            } else {
+                // File not in cache, consider it changed
+                debug!("Configuration file {} not in cache, considering changed", path.display());
+                return Ok(true);
+            }
+        }
+
+        Ok(false)
+    }
+
+    /// Force reload configuration if files have changed
+    pub async fn reload_if_changed(&mut self) -> Result<Option<MappingConfiguration>> {
+        if self.has_configuration_changed().await? {
+            info!("Configuration files have changed, reloading...");
+            let config = self.load_all_configurations_optimized().await?;
+            Ok(Some(config))
+        } else {
+            debug!("No configuration changes detected");
+            Ok(None)
+        }
     }
 
     /// Validate loaded configuration
@@ -1034,6 +1396,9 @@ impl HotReloadHandler {
                 cached_config: Arc::clone(&loader_ref.cached_config),
                 watcher: None,
                 reload_tx: None,
+                config_backup: Arc::clone(&loader_ref.config_backup),
+                file_mtimes: Arc::clone(&loader_ref.file_mtimes),
+                load_metrics: Arc::clone(&loader_ref.load_metrics),
             }
         };
 
@@ -2356,6 +2721,78 @@ mod tests {
         let loader = MappingConfigurationLoader::new(temp_dir.path());
         let result = loader.load_inventory_mappings().await;
         assert!(result.is_err());
+
+        // Check that error message is descriptive
+        let error_msg = result.unwrap_err().to_string();
+        assert!(error_msg.contains("Failed to parse JSON"));
+        assert!(error_msg.contains("line"));
+    }
+
+    #[tokio::test]
+    async fn test_optimized_loading_performance() {
+        let temp_dir = create_test_mappings_dir().await.unwrap();
+        let mut loader = MappingConfigurationLoader::new(temp_dir.path());
+
+        let start = Instant::now();
+        let result = loader.load_all_configurations_optimized().await;
+        let duration = start.elapsed();
+
+        assert!(result.is_ok(), "Loading failed: {:?}", result.err());
+        assert!(duration.as_millis() < 200, "Optimized loading took {}ms, should be < 200ms", duration.as_millis());
+
+        // Check metrics were updated
+        let metrics = loader.get_load_metrics();
+
+        assert!(metrics.successful_loads > 0, "Expected successful_loads > 0, got {}", metrics.successful_loads);
+        assert_eq!(metrics.failed_loads, 0, "Expected no failed loads, got {}", metrics.failed_loads);
+        assert!(metrics.total_load_time_ms < 200, "Expected total_load_time_ms < 200, got {}", metrics.total_load_time_ms);
+        assert!(metrics.last_load_time.is_some(), "Expected last_load_time to be set");
+    }
+
+    #[tokio::test]
+    async fn test_configuration_backup_and_rollback() {
+        let temp_dir = create_test_mappings_dir().await.unwrap();
+        let mut loader = MappingConfigurationLoader::new(temp_dir.path());
+
+        // Load initial configuration
+        let initial_config = loader.load_all_configurations().await.unwrap();
+        assert!(initial_config.inventory_mappings.is_some());
+
+        // Create backup
+        loader.create_configuration_backup().await.unwrap();
+
+        // Clear cache to simulate failure
+        loader.clear_cache();
+        assert!(loader.get_cached_configuration().is_none());
+
+        // Rollback should restore configuration
+        loader.rollback_configuration().await.unwrap();
+        let restored_config = loader.get_cached_configuration();
+        assert!(restored_config.is_some());
+        assert!(restored_config.unwrap().inventory_mappings.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_file_change_detection() {
+        let temp_dir = create_test_mappings_dir().await.unwrap();
+        let mut loader = MappingConfigurationLoader::new(temp_dir.path());
+
+        // Initial load
+        loader.load_all_configurations().await.unwrap();
+
+        // Should not detect changes immediately
+        let changed = loader.has_configuration_changed().await.unwrap();
+        assert!(!changed);
+
+        // Modify a file
+        let inventory_path = temp_dir.path().join("mappings").join("inventory_mappings.json");
+        let mut content = tokio::fs::read_to_string(&inventory_path).await.unwrap();
+        content.push_str("\n// Modified");
+        tokio::fs::write(&inventory_path, content).await.unwrap();
+
+        // Should detect changes now
+        let changed = loader.has_configuration_changed().await.unwrap();
+        assert!(changed);
     }
 
     #[tokio::test]

@@ -14,6 +14,8 @@ use regex::Regex;
 use chrono::{DateTime, NaiveDate};
 use crate::mapping::{MappingConfiguration, InventoryMappings, PoamMappings};
 use crate::fuzzy::FuzzyMatcher;
+use uuid::Uuid;
+use lru::LruCache;
 
 /// Validation rule configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -540,26 +542,994 @@ pub enum AdjustmentType {
     ContextAdjustment,
 }
 
-/// Quality metrics for a document
+/// Custom mapping override system for user-defined column mappings
+#[derive(Debug)]
+pub struct MappingOverrideEngine {
+    /// Active override rules
+    overrides: Vec<MappingOverride>,
+    /// LRU cache for override resolution results
+    override_cache: LruCache<String, Option<String>>,
+    /// Conflict resolver for handling rule conflicts
+    conflict_resolver: ConflictResolver,
+    /// Override rule validator
+    validator: OverrideValidator,
+    /// Performance metrics
+    performance_metrics: OverrideMetrics,
+}
+
+/// Individual mapping override rule
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MappingOverride {
+    /// Unique identifier for the override
+    pub id: Uuid,
+    /// Human-readable name for the override
+    pub name: String,
+    /// Description of what this override does
+    pub description: String,
+    /// Type of override rule
+    pub rule_type: OverrideType,
+    /// Pattern matching configuration
+    pub pattern: OverridePattern,
+    /// Target field to map to
+    pub target_field: String,
+    /// Priority for conflict resolution (higher = more priority)
+    pub priority: i32,
+    /// Conditions that must be met for this override to apply
+    pub conditions: Vec<OverrideCondition>,
+    /// Scope of the override
+    pub scope: OverrideScope,
+    /// User who created this override
+    pub created_by: String,
+    /// When this override was created
+    pub created_at: DateTime<chrono::Utc>,
+    /// When this override was last modified
+    pub modified_at: DateTime<chrono::Utc>,
+    /// Whether this override is currently active
+    pub active: bool,
+    /// Version number for tracking changes
+    pub version: u32,
+    /// Tags for categorization and filtering
+    pub tags: Vec<String>,
+}
+
+/// Type of override matching strategy
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum OverrideType {
+    /// Exact string match (case-sensitive or insensitive)
+    ExactMatch,
+    /// Regular expression pattern matching
+    RegexPattern,
+    /// Fuzzy matching with similarity threshold
+    FuzzyMatch,
+    /// Position-based matching (column index)
+    PositionalMatch,
+    /// Conditional matching based on multiple criteria
+    ConditionalMatch,
+    /// Prefix/suffix matching
+    PrefixSuffixMatch,
+    /// Contains substring matching
+    ContainsMatch,
+}
+
+/// Pattern configuration for override matching
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OverridePattern {
+    /// The pattern string (regex, exact match, etc.)
+    pub pattern: String,
+    /// Whether matching should be case-sensitive
+    pub case_sensitive: bool,
+    /// Whether to match whole words only
+    pub whole_word: bool,
+    /// Regular expression flags (if applicable)
+    pub regex_flags: Option<String>,
+    /// Fuzzy matching threshold (0.0-1.0)
+    pub fuzzy_threshold: Option<f64>,
+    /// Position constraints (for positional matching)
+    pub position_constraints: Option<PositionConstraints>,
+}
+
+/// Position constraints for positional matching
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PositionConstraints {
+    /// Minimum column index (0-based)
+    pub min_index: Option<usize>,
+    /// Maximum column index (0-based)
+    pub max_index: Option<usize>,
+    /// Exact column index (0-based)
+    pub exact_index: Option<usize>,
+    /// Relative position (e.g., "first", "last", "second_to_last")
+    pub relative_position: Option<String>,
+}
+
+/// Condition that must be met for an override to apply
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OverrideCondition {
+    /// Type of condition
+    pub condition_type: ConditionType,
+    /// Field or property to check
+    pub field: String,
+    /// Operator for comparison
+    pub operator: ConditionOperator,
+    /// Value to compare against
+    pub value: serde_json::Value,
+    /// Whether this condition is required (AND) or optional (OR)
+    pub required: bool,
+}
+
+/// Type of condition to evaluate
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum ConditionType {
+    /// Document type condition
+    DocumentType,
+    /// File name pattern condition
+    FileName,
+    /// Column count condition
+    ColumnCount,
+    /// Data sample condition
+    DataSample,
+    /// User role condition
+    UserRole,
+    /// Organization condition
+    Organization,
+    /// Custom metadata condition
+    CustomMetadata,
+}
+
+/// Comparison operator for conditions
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum ConditionOperator {
+    /// Equal to
+    Equals,
+    /// Not equal to
+    NotEquals,
+    /// Contains substring
+    Contains,
+    /// Does not contain substring
+    NotContains,
+    /// Matches regex pattern
+    Matches,
+    /// Does not match regex pattern
+    NotMatches,
+    /// Greater than (numeric)
+    GreaterThan,
+    /// Less than (numeric)
+    LessThan,
+    /// Greater than or equal (numeric)
+    GreaterThanOrEqual,
+    /// Less than or equal (numeric)
+    LessThanOrEqual,
+    /// In list of values
+    In,
+    /// Not in list of values
+    NotIn,
+}
+
+/// Scope of an override rule
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub enum OverrideScope {
+    /// Global override (applies to all documents)
+    Global,
+    /// Document type specific
+    DocumentType(String),
+    /// Organization specific
+    Organization(String),
+    /// User specific
+    User(String),
+    /// Session specific (temporary)
+    Session(String),
+    /// Project specific
+    Project(String),
+}
+
+/// Conflict resolver for handling overlapping override rules
+#[derive(Debug)]
+pub struct ConflictResolver {
+    /// Strategy for resolving conflicts
+    resolution_strategy: ConflictResolutionStrategy,
+    /// Maximum number of conflicts to report
+    max_conflicts_reported: usize,
+}
+
+/// Strategy for resolving override conflicts
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum ConflictResolutionStrategy {
+    /// Use highest priority rule
+    HighestPriority,
+    /// Use most recently created rule
+    MostRecent,
+    /// Use most specific rule (most conditions)
+    MostSpecific,
+    /// Combine rules if possible
+    Combine,
+    /// Report conflict and use fallback
+    ReportAndFallback,
+}
+
+/// Override rule validator
+#[derive(Debug)]
+pub struct OverrideValidator {
+    /// Compiled regex patterns cache
+    regex_cache: HashMap<String, Regex>,
+    /// Validation rules
+    validation_rules: ValidationRuleSet,
+}
+
+/// Set of validation rules for overrides
+#[derive(Debug, Clone)]
+pub struct ValidationRuleSet {
+    /// Maximum pattern length
+    pub max_pattern_length: usize,
+    /// Maximum number of conditions per override
+    pub max_conditions: usize,
+    /// Allowed target fields
+    pub allowed_target_fields: Option<Vec<String>>,
+    /// Forbidden patterns
+    pub forbidden_patterns: Vec<String>,
+    /// Required tags for certain scopes
+    pub required_tags: HashMap<OverrideScope, Vec<String>>,
+}
+
+/// Performance metrics for override operations
+#[derive(Debug, Clone, Default)]
+pub struct OverrideMetrics {
+    /// Total number of override applications
+    pub total_applications: u64,
+    /// Number of successful matches
+    pub successful_matches: u64,
+    /// Number of conflicts detected
+    pub conflicts_detected: u64,
+    /// Average resolution time in microseconds
+    pub avg_resolution_time_us: f64,
+    /// Cache hit rate
+    pub cache_hit_rate: f64,
+    /// Last updated timestamp
+    pub last_updated: DateTime<chrono::Utc>,
+}
+
+/// Result of override resolution
+#[derive(Debug, Clone)]
+pub struct OverrideResolutionResult {
+    /// Whether an override was applied
+    pub override_applied: bool,
+    /// The override rule that was applied (if any)
+    pub applied_override: Option<MappingOverride>,
+    /// Target field from override or fallback
+    pub target_field: Option<String>,
+    /// Confidence score for the override match
+    pub confidence: f64,
+    /// Any conflicts that were detected
+    pub conflicts: Vec<OverrideConflict>,
+    /// Resolution time
+    pub resolution_time: Duration,
+    /// Whether result came from cache
+    pub from_cache: bool,
+}
+
+/// Detected conflict between override rules
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OverrideConflict {
+    /// Conflicting override rules
+    pub conflicting_overrides: Vec<Uuid>,
+    /// Type of conflict
+    pub conflict_type: ConflictType,
+    /// Description of the conflict
+    pub description: String,
+    /// Suggested resolution
+    pub suggested_resolution: String,
+    /// Severity of the conflict
+    pub severity: ConflictSeverity,
+}
+
+/// Type of override conflict
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum ConflictType {
+    /// Multiple rules match the same pattern
+    PatternOverlap,
+    /// Rules have same priority but different targets
+    PriorityTie,
+    /// Circular dependency in conditions
+    CircularDependency,
+    /// Contradictory conditions
+    ContradictoryConditions,
+    /// Scope conflicts
+    ScopeConflict,
+}
+
+/// Severity of override conflict
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, PartialOrd)]
+pub enum ConflictSeverity {
+    /// Low severity - informational
+    Low,
+    /// Medium severity - may affect results
+    Medium,
+    /// High severity - likely to cause issues
+    High,
+    /// Critical severity - will cause failures
+    Critical,
+}
+
+/// Comprehensive mapping validation report system
+#[derive(Debug)]
+pub struct MappingReportGenerator {
+    /// Report configuration
+    config: ReportConfig,
+    /// Template engine for HTML reports
+    template_engine: Option<tera::Tera>,
+    /// Report cache for performance
+    report_cache: LruCache<String, CachedReport>,
+    /// Historical data for trend analysis
+    historical_data: HistoricalReportData,
+    /// Performance metrics
+    generation_metrics: ReportGenerationMetrics,
+}
+
+/// Configuration for report generation
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReportConfig {
+    /// Default report format
+    pub default_format: ReportFormat,
+    /// Include data visualizations
+    pub include_visualizations: bool,
+    /// Maximum report generation time (seconds)
+    pub max_generation_time_seconds: u64,
+    /// Enable report caching
+    pub enable_caching: bool,
+    /// Cache expiration time (minutes)
+    pub cache_expiration_minutes: u64,
+    /// Include detailed field analysis
+    pub include_detailed_analysis: bool,
+    /// Include recommendations
+    pub include_recommendations: bool,
+    /// Report template directory
+    pub template_directory: Option<String>,
+}
+
+/// Comprehensive mapping validation report
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MappingReport {
+    /// Unique report identifier
+    pub report_id: Uuid,
+    /// Type of report generated
+    pub report_type: ReportType,
+    /// When the report was generated
+    pub generated_at: DateTime<chrono::Utc>,
+    /// Information about the processed document
+    pub document_info: DocumentInfo,
+    /// High-level mapping summary
+    pub mapping_summary: MappingSummary,
+    /// Detailed field-by-field results
+    pub detailed_results: Vec<FieldMappingResult>,
+    /// Quality metrics and scores
+    pub quality_metrics: QualityMetrics,
+    /// Actionable recommendations
+    pub recommendations: Vec<Recommendation>,
+    /// Validation results
+    pub validation_results: ValidationSummary,
+    /// Override application results
+    pub override_results: OverrideSummary,
+    /// Performance metrics
+    pub performance_metrics: ProcessingMetrics,
+    /// Trend analysis (if historical data available)
+    pub trend_analysis: Option<TrendAnalysis>,
+}
+
+/// Type of mapping report
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum ReportType {
+    /// Summary report with key metrics
+    Summary,
+    /// Detailed analysis report
+    Detailed,
+    /// Quality trend analysis
+    QualityTrend,
+    /// Compliance and audit report
+    Compliance,
+    /// Performance analysis report
+    Performance,
+    /// Custom report type
+    Custom(String),
+}
+
+/// Report output format
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum ReportFormat {
+    /// HTML format with interactive elements
+    Html,
+    /// PDF format for printing/sharing
+    Pdf,
+    /// JSON format for API consumption
+    Json,
+    /// CSV format for data analysis
+    Csv,
+    /// Markdown format for documentation
+    Markdown,
+}
+
+/// Information about the processed document
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DocumentInfo {
+    /// Document file name
+    pub file_name: String,
+    /// Document type (inventory, poam, ssp)
+    pub document_type: String,
+    /// File size in bytes
+    pub file_size: u64,
+    /// Number of rows processed
+    pub total_rows: usize,
+    /// Number of columns detected
+    pub total_columns: usize,
+    /// Processing timestamp
+    pub processed_at: DateTime<chrono::Utc>,
+    /// Processing duration
+    pub processing_duration: Duration,
+    /// Document hash for change detection
+    pub document_hash: String,
+}
+
+/// High-level mapping summary statistics
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MappingSummary {
+    /// Total number of fields expected
+    pub total_fields: usize,
+    /// Number of fields successfully mapped
+    pub mapped_fields: usize,
+    /// Number of required fields mapped
+    pub required_fields_mapped: usize,
+    /// Number of required fields missing
+    pub required_fields_missing: usize,
+    /// Number of optional fields mapped
+    pub optional_fields_mapped: usize,
+    /// Average confidence score across all mappings
+    pub average_confidence: f64,
+    /// Minimum confidence score
+    pub min_confidence: f64,
+    /// Maximum confidence score
+    pub max_confidence: f64,
+    /// Number of high-confidence mappings (>0.9)
+    pub high_confidence_mappings: usize,
+    /// Number of low-confidence mappings (<0.5)
+    pub low_confidence_mappings: usize,
+    /// Total processing time
+    pub processing_time: Duration,
+    /// Mapping success rate (0.0-1.0)
+    pub success_rate: f64,
+}
+
+/// Detailed result for a single field mapping
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FieldMappingResult {
+    /// Expected field identifier
+    pub field_id: String,
+    /// Target OSCAL field path
+    pub target_field: String,
+    /// Source column name (if mapped)
+    pub source_column: Option<String>,
+    /// Mapping confidence score
+    pub confidence_score: f64,
+    /// Whether mapping was successful
+    pub mapping_successful: bool,
+    /// Whether field is required
+    pub required: bool,
+    /// Validation result for this field
+    pub validation_result: Option<ColumnValidationResult>,
+    /// Override applied (if any)
+    pub override_applied: Option<String>,
+    /// Alternative suggestions
+    pub alternatives: Vec<MappingAlternative>,
+    /// Issues and warnings
+    pub issues: Vec<MappingIssue>,
+    /// Data quality assessment
+    pub data_quality: Option<DataQualityAssessment>,
+}
+
+/// Alternative mapping suggestion
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MappingAlternative {
+    /// Alternative source column
+    pub source_column: String,
+    /// Confidence score for alternative
+    pub confidence_score: f64,
+    /// Reason for suggestion
+    pub reason: String,
+}
+
+/// Mapping issue or warning
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MappingIssue {
+    /// Issue severity level
+    pub severity: IssueSeverity,
+    /// Issue category
+    pub category: IssueCategory,
+    /// Issue description
+    pub description: String,
+    /// Suggested resolution
+    pub suggested_resolution: Option<String>,
+    /// Impact assessment
+    pub impact: String,
+}
+
+/// Severity level for mapping issues
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, PartialOrd)]
+pub enum IssueSeverity {
+    /// Informational message
+    Info,
+    /// Warning that should be reviewed
+    Warning,
+    /// Error that affects functionality
+    Error,
+    /// Critical error that prevents processing
+    Critical,
+}
+
+/// Category of mapping issue
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum IssueCategory {
+    /// Missing required field
+    MissingRequired,
+    /// Low confidence mapping
+    LowConfidence,
+    /// Data type mismatch
+    DataTypeMismatch,
+    /// Validation failure
+    ValidationFailure,
+    /// Override conflict
+    OverrideConflict,
+    /// Performance issue
+    Performance,
+    /// Data quality issue
+    DataQuality,
+}
+
+/// Data quality assessment for a field
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DataQualityAssessment {
+    /// Completeness score (0.0-1.0)
+    pub completeness: f64,
+    /// Consistency score (0.0-1.0)
+    pub consistency: f64,
+    /// Validity score (0.0-1.0)
+    pub validity: f64,
+    /// Overall quality score (0.0-1.0)
+    pub overall_quality: f64,
+    /// Number of null/empty values
+    pub null_count: usize,
+    /// Number of invalid values
+    pub invalid_count: usize,
+    /// Sample valid values
+    pub sample_values: Vec<String>,
+    /// Detected data patterns
+    pub patterns: Vec<String>,
+}
+
+/// Overall quality metrics for the mapping
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QualityMetrics {
-    /// Overall quality score (0.0 to 1.0)
-    pub overall_score: f64,
-    /// Completeness score (0.0 to 1.0)
+    /// Data completeness score (0.0-1.0)
     pub completeness_score: f64,
-    /// Consistency score (0.0 to 1.0)
-    pub consistency_score: f64,
-    /// Accuracy score (0.0 to 1.0)
+    /// Mapping accuracy score (0.0-1.0)
     pub accuracy_score: f64,
-    /// Total number of fields
-    pub total_fields: usize,
-    /// Number of populated fields
-    pub populated_fields: usize,
-    /// Number of validation errors
-    pub error_count: usize,
-    /// Number of validation warnings
-    pub warning_count: usize,
+    /// Data consistency score (0.0-1.0)
+    pub consistency_score: f64,
+    /// Overall quality score (0.0-1.0)
+    pub overall_quality_score: f64,
+    /// Risk level assessment
+    pub risk_level: RiskLevel,
+    /// Quality grade (A-F)
+    pub quality_grade: QualityGrade,
+    /// Compliance percentage
+    pub compliance_percentage: f64,
+    /// Number of critical issues
+    pub critical_issues: usize,
+    /// Number of warnings
+    pub warnings: usize,
 }
+
+/// Risk level assessment
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, PartialOrd)]
+pub enum RiskLevel {
+    /// Very low risk
+    VeryLow,
+    /// Low risk
+    Low,
+    /// Medium risk
+    Medium,
+    /// High risk
+    High,
+    /// Very high risk
+    VeryHigh,
+}
+
+/// Quality grade classification
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, PartialOrd)]
+pub enum QualityGrade {
+    /// Excellent quality (90-100%)
+    A,
+    /// Good quality (80-89%)
+    B,
+    /// Fair quality (70-79%)
+    C,
+    /// Poor quality (60-69%)
+    D,
+    /// Failing quality (<60%)
+    F,
+}
+
+/// Actionable recommendation for improvement
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Recommendation {
+    /// Recommendation priority
+    pub priority: RecommendationPriority,
+    /// Recommendation category
+    pub category: RecommendationCategory,
+    /// Recommendation title
+    pub title: String,
+    /// Detailed description
+    pub description: String,
+    /// Suggested action steps
+    pub suggested_action: String,
+    /// Expected impact of implementing
+    pub impact_assessment: String,
+    /// Effort required to implement
+    pub effort_level: EffortLevel,
+    /// Related field IDs (if applicable)
+    pub related_fields: Vec<String>,
+}
+
+
+
+/// Category of recommendation
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum RecommendationCategory {
+    /// Data quality improvement
+    DataQuality,
+    /// Mapping accuracy improvement
+    MappingAccuracy,
+    /// Performance optimization
+    Performance,
+    /// Compliance enhancement
+    Compliance,
+    /// Process improvement
+    Process,
+    /// Configuration optimization
+    Configuration,
+}
+
+/// Effort level required for implementation
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, PartialOrd)]
+pub enum EffortLevel {
+    /// Minimal effort (< 1 hour)
+    Minimal,
+    /// Low effort (1-4 hours)
+    Low,
+    /// Medium effort (1-2 days)
+    Medium,
+    /// High effort (3-5 days)
+    High,
+    /// Very high effort (> 1 week)
+    VeryHigh,
+}
+
+/// Summary of validation results
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ValidationSummary {
+    /// Total validations performed
+    pub total_validations: usize,
+    /// Number of validations passed
+    pub validations_passed: usize,
+    /// Number of validations failed
+    pub validations_failed: usize,
+    /// Number of validation warnings
+    pub validation_warnings: usize,
+    /// Validation success rate (0.0-1.0)
+    pub success_rate: f64,
+    /// Most common validation failures
+    pub common_failures: Vec<ValidationFailureInfo>,
+    /// Validation performance metrics
+    pub performance_metrics: ValidationPerformanceMetrics,
+}
+
+/// Information about common validation failures
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ValidationFailureInfo {
+    /// Type of validation failure
+    pub failure_type: String,
+    /// Number of occurrences
+    pub occurrence_count: usize,
+    /// Percentage of total failures
+    pub failure_percentage: f64,
+    /// Example failing values
+    pub example_values: Vec<String>,
+    /// Suggested fixes
+    pub suggested_fixes: Vec<String>,
+}
+
+/// Performance metrics for validation operations
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ValidationPerformanceMetrics {
+    /// Average validation time per field (microseconds)
+    pub avg_validation_time_us: f64,
+    /// Total validation time
+    pub total_validation_time: Duration,
+    /// Slowest validation operations
+    pub slowest_validations: Vec<SlowValidationInfo>,
+}
+
+/// Information about slow validation operations
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SlowValidationInfo {
+    /// Field that was slow to validate
+    pub field_id: String,
+    /// Validation time in microseconds
+    pub validation_time_us: u64,
+    /// Reason for slowness
+    pub reason: String,
+}
+
+/// Summary of override application results
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OverrideSummary {
+    /// Total number of override rules evaluated
+    pub total_overrides_evaluated: usize,
+    /// Number of overrides applied
+    pub overrides_applied: usize,
+    /// Number of override conflicts detected
+    pub conflicts_detected: usize,
+    /// Override application success rate
+    pub application_success_rate: f64,
+    /// Most frequently applied overrides
+    pub frequently_applied: Vec<OverrideUsageInfo>,
+    /// Override performance metrics
+    pub performance_metrics: OverridePerformanceMetrics,
+}
+
+/// Information about override usage
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OverrideUsageInfo {
+    /// Override rule name
+    pub override_name: String,
+    /// Number of times applied
+    pub application_count: usize,
+    /// Success rate for this override
+    pub success_rate: f64,
+    /// Average confidence when applied
+    pub avg_confidence: f64,
+}
+
+/// Performance metrics for override operations
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OverridePerformanceMetrics {
+    /// Average override resolution time (microseconds)
+    pub avg_resolution_time_us: f64,
+    /// Cache hit rate for override lookups
+    pub cache_hit_rate: f64,
+    /// Total override processing time
+    pub total_processing_time: Duration,
+}
+
+/// Processing performance metrics
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProcessingMetrics {
+    /// Total processing time
+    pub total_processing_time: Duration,
+    /// Time spent on column detection
+    pub column_detection_time: Duration,
+    /// Time spent on mapping
+    pub mapping_time: Duration,
+    /// Time spent on validation
+    pub validation_time: Duration,
+    /// Time spent on override resolution
+    pub override_time: Duration,
+    /// Memory usage statistics
+    pub memory_usage: MemoryUsageMetrics,
+    /// Throughput metrics
+    pub throughput: ThroughputMetrics,
+}
+
+/// Memory usage statistics
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryUsageMetrics {
+    /// Peak memory usage in bytes
+    pub peak_memory_bytes: u64,
+    /// Average memory usage in bytes
+    pub avg_memory_bytes: u64,
+    /// Memory efficiency score (0.0-1.0)
+    pub efficiency_score: f64,
+}
+
+/// Throughput performance metrics
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ThroughputMetrics {
+    /// Rows processed per second
+    pub rows_per_second: f64,
+    /// Fields processed per second
+    pub fields_per_second: f64,
+    /// Bytes processed per second
+    pub bytes_per_second: f64,
+}
+
+/// Trend analysis data (when historical data is available)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TrendAnalysis {
+    /// Time period covered by the analysis
+    pub time_period: TimePeriod,
+    /// Quality score trends
+    pub quality_trends: QualityTrends,
+    /// Performance trends
+    pub performance_trends: PerformanceTrends,
+    /// Common issues over time
+    pub issue_trends: IssueTrends,
+    /// Improvement recommendations based on trends
+    pub trend_recommendations: Vec<TrendRecommendation>,
+}
+
+/// Time period for trend analysis
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TimePeriod {
+    /// Start of the analysis period
+    pub start_date: DateTime<chrono::Utc>,
+    /// End of the analysis period
+    pub end_date: DateTime<chrono::Utc>,
+    /// Number of data points in the analysis
+    pub data_points: usize,
+}
+
+/// Quality score trends over time
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QualityTrends {
+    /// Overall quality score trend
+    pub overall_quality_trend: TrendDirection,
+    /// Completeness score trend
+    pub completeness_trend: TrendDirection,
+    /// Accuracy score trend
+    pub accuracy_trend: TrendDirection,
+    /// Consistency score trend
+    pub consistency_trend: TrendDirection,
+    /// Historical quality scores
+    pub historical_scores: Vec<HistoricalQualityScore>,
+}
+
+/// Performance trends over time
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PerformanceTrends {
+    /// Processing time trend
+    pub processing_time_trend: TrendDirection,
+    /// Throughput trend
+    pub throughput_trend: TrendDirection,
+    /// Memory usage trend
+    pub memory_usage_trend: TrendDirection,
+    /// Historical performance data
+    pub historical_performance: Vec<HistoricalPerformanceData>,
+}
+
+/// Issue trends over time
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IssueTrends {
+    /// Critical issues trend
+    pub critical_issues_trend: TrendDirection,
+    /// Warning trend
+    pub warnings_trend: TrendDirection,
+    /// Most common issues over time
+    pub common_issues: Vec<CommonIssueInfo>,
+}
+
+/// Direction of a trend
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum TrendDirection {
+    /// Improving trend
+    Improving,
+    /// Stable trend
+    Stable,
+    /// Declining trend
+    Declining,
+    /// Insufficient data
+    InsufficientData,
+}
+
+/// Historical quality score data point
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HistoricalQualityScore {
+    /// Timestamp of the measurement
+    pub timestamp: DateTime<chrono::Utc>,
+    /// Overall quality score
+    pub overall_score: f64,
+    /// Completeness score
+    pub completeness_score: f64,
+    /// Accuracy score
+    pub accuracy_score: f64,
+    /// Consistency score
+    pub consistency_score: f64,
+}
+
+/// Historical performance data point
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HistoricalPerformanceData {
+    /// Timestamp of the measurement
+    pub timestamp: DateTime<chrono::Utc>,
+    /// Processing time in milliseconds
+    pub processing_time_ms: u64,
+    /// Throughput in rows per second
+    pub throughput_rps: f64,
+    /// Memory usage in bytes
+    pub memory_usage_bytes: u64,
+}
+
+/// Information about common issues over time
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CommonIssueInfo {
+    /// Issue category
+    pub issue_category: IssueCategory,
+    /// Trend direction for this issue
+    pub trend: TrendDirection,
+    /// Current occurrence rate
+    pub current_rate: f64,
+    /// Historical occurrence rates
+    pub historical_rates: Vec<IssueRateDataPoint>,
+}
+
+/// Issue rate data point
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IssueRateDataPoint {
+    /// Timestamp
+    pub timestamp: DateTime<chrono::Utc>,
+    /// Issue occurrence rate
+    pub rate: f64,
+}
+
+/// Trend-based recommendation
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TrendRecommendation {
+    /// Recommendation based on trend analysis
+    pub recommendation: String,
+    /// Supporting trend data
+    pub supporting_data: String,
+    /// Expected impact
+    pub expected_impact: String,
+    /// Priority based on trend severity
+    pub priority: RecommendationPriority,
+}
+
+/// Cached report for performance optimization
+#[derive(Debug, Clone)]
+pub struct CachedReport {
+    /// The cached report
+    pub report: MappingReport,
+    /// When the report was cached
+    pub cached_at: DateTime<chrono::Utc>,
+    /// Cache expiration time
+    pub expires_at: DateTime<chrono::Utc>,
+    /// Report format
+    pub format: ReportFormat,
+}
+
+/// Historical data for trend analysis
+#[derive(Debug, Clone, Default)]
+pub struct HistoricalReportData {
+    /// Historical quality scores
+    pub quality_history: Vec<HistoricalQualityScore>,
+    /// Historical performance data
+    pub performance_history: Vec<HistoricalPerformanceData>,
+    /// Historical issue data
+    pub issue_history: Vec<CommonIssueInfo>,
+    /// Maximum history retention (days)
+    pub max_retention_days: u32,
+}
+
+/// Report generation performance metrics
+#[derive(Debug, Clone, Default)]
+pub struct ReportGenerationMetrics {
+    /// Total reports generated
+    pub total_reports_generated: u64,
+    /// Average generation time in milliseconds
+    pub avg_generation_time_ms: f64,
+    /// Cache hit rate
+    pub cache_hit_rate: f64,
+    /// Failed generation attempts
+    pub failed_generations: u64,
+    /// Last updated timestamp
+    pub last_updated: DateTime<chrono::Utc>,
+}
+
+
 
 /// Comprehensive column validator for document validation
 #[derive(Debug)]
@@ -2338,6 +3308,1654 @@ impl ConfidenceScorer {
     }
 }
 
+impl MappingOverrideEngine {
+    /// Create a new mapping override engine
+    pub fn new() -> Self {
+        Self {
+            overrides: Vec::new(),
+            override_cache: LruCache::new(std::num::NonZeroUsize::new(1000).unwrap()),
+            conflict_resolver: ConflictResolver::new(),
+            validator: OverrideValidator::new(),
+            performance_metrics: OverrideMetrics::default(),
+        }
+    }
+
+    /// Create a new override engine with custom cache size
+    pub fn with_cache_size(cache_size: usize) -> Self {
+        Self {
+            overrides: Vec::new(),
+            override_cache: LruCache::new(std::num::NonZeroUsize::new(cache_size).unwrap()),
+            conflict_resolver: ConflictResolver::new(),
+            validator: OverrideValidator::new(),
+            performance_metrics: OverrideMetrics::default(),
+        }
+    }
+
+    /// Add a new override rule
+    pub fn add_override(&mut self, mut override_rule: MappingOverride) -> Result<()> {
+        let start_time = Instant::now();
+
+        // Validate the override rule
+        self.validator.validate_override(&override_rule)?;
+
+        // Set creation/modification timestamps
+        let now = chrono::Utc::now();
+        override_rule.created_at = now;
+        override_rule.modified_at = now;
+        override_rule.version = 1;
+
+        // Check for conflicts with existing rules
+        let conflicts = self.detect_conflicts(&override_rule)?;
+        if !conflicts.is_empty() {
+            warn!("Detected {} conflicts when adding override '{}'", conflicts.len(), override_rule.name);
+            for conflict in &conflicts {
+                if conflict.severity >= ConflictSeverity::High {
+                    return Err(Error::document_parsing(format!(
+                        "High severity conflict detected: {}",
+                        conflict.description
+                    )));
+                }
+            }
+        }
+
+        // Add the override
+        self.overrides.push(override_rule.clone());
+
+        // Sort overrides by priority (highest first)
+        self.overrides.sort_by(|a, b| b.priority.cmp(&a.priority));
+
+        // Clear cache since rules have changed
+        self.override_cache.clear();
+
+        // Update metrics
+        self.performance_metrics.total_applications += 1;
+
+        info!(
+            "Added override '{}' with priority {} in {}μs",
+            override_rule.name,
+            override_rule.priority,
+            start_time.elapsed().as_micros()
+        );
+
+        Ok(())
+    }
+
+    /// Remove an override rule by ID
+    pub fn remove_override(&mut self, override_id: &Uuid) -> Result<bool> {
+        let initial_len = self.overrides.len();
+        self.overrides.retain(|override_rule| override_rule.id != *override_id);
+
+        let removed = self.overrides.len() < initial_len;
+        if removed {
+            self.override_cache.clear();
+            info!("Removed override with ID: {}", override_id);
+        }
+
+        Ok(removed)
+    }
+
+    /// Update an existing override rule
+    pub fn update_override(&mut self, updated_override: MappingOverride) -> Result<bool> {
+        // Validate the updated override
+        self.validator.validate_override(&updated_override)?;
+
+        // Find the index of the override to update
+        if let Some(index) = self.overrides.iter().position(|o| o.id == updated_override.id) {
+            let existing = &self.overrides[index];
+            let mut updated = updated_override;
+            updated.version = existing.version + 1;
+            updated.modified_at = chrono::Utc::now();
+            updated.created_at = existing.created_at; // Preserve original creation time
+            updated.created_by = existing.created_by.clone(); // Preserve original creator
+
+            let override_name = updated.name.clone();
+            let override_version = updated.version;
+
+            // Update the override
+            self.overrides[index] = updated;
+
+            // Re-sort by priority
+            self.overrides.sort_by(|a, b| b.priority.cmp(&a.priority));
+
+            // Clear cache
+            self.override_cache.clear();
+
+            info!("Updated override '{}' to version {}", override_name, override_version);
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+
+    /// Resolve column mapping using override rules
+    pub fn resolve_mapping(
+        &mut self,
+        source_column: &str,
+        document_type: &str,
+        context: &OverrideContext,
+    ) -> Result<OverrideResolutionResult> {
+        let start_time = Instant::now();
+
+        // Check cache first
+        let cache_key = format!("{}:{}:{}", source_column, document_type, context.cache_key());
+        if let Some(cached_result) = self.override_cache.get(&cache_key) {
+            self.performance_metrics.cache_hit_rate =
+                (self.performance_metrics.cache_hit_rate * 0.9) + (1.0 * 0.1);
+
+            return Ok(OverrideResolutionResult {
+                override_applied: cached_result.is_some(),
+                applied_override: None, // Don't cache full override objects
+                target_field: cached_result.clone(),
+                confidence: if cached_result.is_some() { 1.0 } else { 0.0 },
+                conflicts: Vec::new(),
+                resolution_time: start_time.elapsed(),
+                from_cache: true,
+            });
+        }
+
+        // Update cache miss rate
+        self.performance_metrics.cache_hit_rate =
+            (self.performance_metrics.cache_hit_rate * 0.9) + (0.0 * 0.1);
+
+        // Find matching overrides
+        let mut matching_overrides = Vec::new();
+        let mut all_conflicts = Vec::new();
+
+        for override_rule in &self.overrides {
+            if !override_rule.active {
+                continue;
+            }
+
+            // Check scope
+            if !self.check_scope_match(&override_rule.scope, context)? {
+                continue;
+            }
+
+            // Check conditions
+            if !self.evaluate_conditions(&override_rule.conditions, source_column, document_type, context)? {
+                continue;
+            }
+
+            // Check pattern match
+            if let Some(confidence) = self.check_pattern_match(&override_rule.pattern, &override_rule.rule_type, source_column)? {
+                matching_overrides.push((override_rule.clone(), confidence));
+            }
+        }
+
+        // Resolve conflicts if multiple matches
+        let (selected_override, conflicts) = if matching_overrides.is_empty() {
+            (None, Vec::new())
+        } else if matching_overrides.len() == 1 {
+            (Some(matching_overrides.into_iter().next().unwrap()), Vec::new())
+        } else {
+            self.conflict_resolver.resolve_conflicts(matching_overrides)?
+        };
+
+        all_conflicts.extend(conflicts);
+
+        let resolution_time = start_time.elapsed();
+
+        // Update metrics
+        self.performance_metrics.total_applications += 1;
+        if selected_override.is_some() {
+            self.performance_metrics.successful_matches += 1;
+        }
+        if !all_conflicts.is_empty() {
+            self.performance_metrics.conflicts_detected += 1;
+        }
+
+        // Update average resolution time
+        let new_time_us = resolution_time.as_micros() as f64;
+        self.performance_metrics.avg_resolution_time_us =
+            (self.performance_metrics.avg_resolution_time_us * 0.9) + (new_time_us * 0.1);
+
+        // Cache the result
+        let target_field = selected_override.as_ref().map(|(override_rule, _)| override_rule.target_field.clone());
+        self.override_cache.put(cache_key, target_field.clone());
+
+        Ok(OverrideResolutionResult {
+            override_applied: selected_override.is_some(),
+            applied_override: selected_override.as_ref().map(|(override_rule, _)| override_rule.clone()),
+            target_field,
+            confidence: selected_override.map(|(_, confidence)| confidence).unwrap_or(0.0),
+            conflicts: all_conflicts,
+            resolution_time,
+            from_cache: false,
+        })
+    }
+
+    /// Load overrides from JSON configuration
+    pub fn load_overrides_from_json(&mut self, json_data: &str) -> Result<usize> {
+        let overrides: Vec<MappingOverride> = serde_json::from_str(json_data)
+            .map_err(|e| Error::document_parsing(format!("Failed to parse override JSON: {}", e)))?;
+
+        let mut loaded_count = 0;
+        for override_rule in overrides {
+            if let Err(e) = self.add_override(override_rule) {
+                warn!("Failed to load override: {}", e);
+            } else {
+                loaded_count += 1;
+            }
+        }
+
+        info!("Loaded {} override rules from JSON", loaded_count);
+        Ok(loaded_count)
+    }
+
+    /// Export overrides to JSON
+    pub fn export_overrides_to_json(&self) -> Result<String> {
+        serde_json::to_string_pretty(&self.overrides)
+            .map_err(|e| Error::document_parsing(format!("Failed to serialize overrides: {}", e)))
+    }
+
+    /// Get all active overrides
+    pub fn get_active_overrides(&self) -> Vec<&MappingOverride> {
+        self.overrides.iter().filter(|o| o.active).collect()
+    }
+
+    /// Get override by ID
+    pub fn get_override(&self, override_id: &Uuid) -> Option<&MappingOverride> {
+        self.overrides.iter().find(|o| o.id == *override_id)
+    }
+
+    /// Get performance metrics
+    pub fn get_metrics(&self) -> &OverrideMetrics {
+        &self.performance_metrics
+    }
+
+    /// Clear all overrides
+    pub fn clear_overrides(&mut self) {
+        self.overrides.clear();
+        self.override_cache.clear();
+        info!("Cleared all override rules");
+    }
+
+    /// Get overrides by scope
+    pub fn get_overrides_by_scope(&self, scope: &OverrideScope) -> Vec<&MappingOverride> {
+        self.overrides.iter().filter(|o| o.scope == *scope).collect()
+    }
+
+    /// Check if scope matches the current context
+    fn check_scope_match(&self, scope: &OverrideScope, context: &OverrideContext) -> Result<bool> {
+        match scope {
+            OverrideScope::Global => Ok(true),
+            OverrideScope::DocumentType(doc_type) => Ok(context.document_type == *doc_type),
+            OverrideScope::Organization(org) => Ok(context.organization.as_ref() == Some(org)),
+            OverrideScope::User(user) => Ok(context.user.as_ref() == Some(user)),
+            OverrideScope::Session(session) => Ok(context.session_id.as_ref() == Some(session)),
+            OverrideScope::Project(project) => Ok(context.project.as_ref() == Some(project)),
+        }
+    }
+
+    /// Evaluate conditions for an override rule
+    fn evaluate_conditions(
+        &self,
+        conditions: &[OverrideCondition],
+        source_column: &str,
+        document_type: &str,
+        context: &OverrideContext,
+    ) -> Result<bool> {
+        if conditions.is_empty() {
+            return Ok(true);
+        }
+
+        let mut required_conditions_met = true;
+        let mut optional_conditions_met = false;
+
+        for condition in conditions {
+            let condition_result = self.evaluate_single_condition(condition, source_column, document_type, context)?;
+
+            if condition.required {
+                required_conditions_met = required_conditions_met && condition_result;
+            } else {
+                optional_conditions_met = optional_conditions_met || condition_result;
+            }
+        }
+
+        // All required conditions must be met, and at least one optional condition (if any exist)
+        let has_optional = conditions.iter().any(|c| !c.required);
+        Ok(required_conditions_met && (!has_optional || optional_conditions_met))
+    }
+
+    /// Evaluate a single condition
+    fn evaluate_single_condition(
+        &self,
+        condition: &OverrideCondition,
+        _source_column: &str,
+        document_type: &str,
+        context: &OverrideContext,
+    ) -> Result<bool> {
+        let field_value = match condition.condition_type {
+            ConditionType::DocumentType => serde_json::Value::String(document_type.to_string()),
+            ConditionType::FileName => serde_json::Value::String(context.file_name.clone().unwrap_or_default()),
+            ConditionType::ColumnCount => serde_json::Value::Number(serde_json::Number::from(context.column_count.unwrap_or(0))),
+            ConditionType::DataSample => context.data_sample.clone().unwrap_or(serde_json::Value::Null),
+            ConditionType::UserRole => serde_json::Value::String(context.user_role.clone().unwrap_or_default()),
+            ConditionType::Organization => serde_json::Value::String(context.organization.clone().unwrap_or_default()),
+            ConditionType::CustomMetadata => {
+                context.custom_metadata.get(&condition.field).cloned().unwrap_or(serde_json::Value::Null)
+            }
+        };
+
+        self.apply_condition_operator(&condition.operator, &field_value, &condition.value)
+    }
+
+    /// Apply condition operator to compare values
+    fn apply_condition_operator(
+        &self,
+        operator: &ConditionOperator,
+        field_value: &serde_json::Value,
+        expected_value: &serde_json::Value,
+    ) -> Result<bool> {
+        match operator {
+            ConditionOperator::Equals => Ok(field_value == expected_value),
+            ConditionOperator::NotEquals => Ok(field_value != expected_value),
+            ConditionOperator::Contains => {
+                if let (Some(field_str), Some(expected_str)) = (field_value.as_str(), expected_value.as_str()) {
+                    Ok(field_str.contains(expected_str))
+                } else {
+                    Ok(false)
+                }
+            }
+            ConditionOperator::NotContains => {
+                if let (Some(field_str), Some(expected_str)) = (field_value.as_str(), expected_value.as_str()) {
+                    Ok(!field_str.contains(expected_str))
+                } else {
+                    Ok(true)
+                }
+            }
+            ConditionOperator::Matches => {
+                if let (Some(field_str), Some(pattern_str)) = (field_value.as_str(), expected_value.as_str()) {
+                    let regex = Regex::new(pattern_str)
+                        .map_err(|e| Error::document_parsing(format!("Invalid regex pattern: {}", e)))?;
+                    Ok(regex.is_match(field_str))
+                } else {
+                    Ok(false)
+                }
+            }
+            ConditionOperator::NotMatches => {
+                if let (Some(field_str), Some(pattern_str)) = (field_value.as_str(), expected_value.as_str()) {
+                    let regex = Regex::new(pattern_str)
+                        .map_err(|e| Error::document_parsing(format!("Invalid regex pattern: {}", e)))?;
+                    Ok(!regex.is_match(field_str))
+                } else {
+                    Ok(true)
+                }
+            }
+            ConditionOperator::GreaterThan => {
+                if let (Some(field_num), Some(expected_num)) = (field_value.as_f64(), expected_value.as_f64()) {
+                    Ok(field_num > expected_num)
+                } else {
+                    Ok(false)
+                }
+            }
+            ConditionOperator::LessThan => {
+                if let (Some(field_num), Some(expected_num)) = (field_value.as_f64(), expected_value.as_f64()) {
+                    Ok(field_num < expected_num)
+                } else {
+                    Ok(false)
+                }
+            }
+            ConditionOperator::GreaterThanOrEqual => {
+                if let (Some(field_num), Some(expected_num)) = (field_value.as_f64(), expected_value.as_f64()) {
+                    Ok(field_num >= expected_num)
+                } else {
+                    Ok(false)
+                }
+            }
+            ConditionOperator::LessThanOrEqual => {
+                if let (Some(field_num), Some(expected_num)) = (field_value.as_f64(), expected_value.as_f64()) {
+                    Ok(field_num <= expected_num)
+                } else {
+                    Ok(false)
+                }
+            }
+            ConditionOperator::In => {
+                if let Some(expected_array) = expected_value.as_array() {
+                    Ok(expected_array.contains(field_value))
+                } else {
+                    Ok(false)
+                }
+            }
+            ConditionOperator::NotIn => {
+                if let Some(expected_array) = expected_value.as_array() {
+                    Ok(!expected_array.contains(field_value))
+                } else {
+                    Ok(true)
+                }
+            }
+        }
+    }
+
+    /// Check if pattern matches the source column
+    fn check_pattern_match(
+        &self,
+        pattern: &OverridePattern,
+        rule_type: &OverrideType,
+        source_column: &str,
+    ) -> Result<Option<f64>> {
+        match rule_type {
+            OverrideType::ExactMatch => {
+                let matches = if pattern.case_sensitive {
+                    source_column == pattern.pattern
+                } else {
+                    source_column.to_lowercase() == pattern.pattern.to_lowercase()
+                };
+                Ok(if matches { Some(1.0) } else { None })
+            }
+            OverrideType::RegexPattern => {
+                let regex = Regex::new(&pattern.pattern)
+                    .map_err(|e| Error::document_parsing(format!("Invalid regex pattern: {}", e)))?;
+                Ok(if regex.is_match(source_column) { Some(0.95) } else { None })
+            }
+            OverrideType::FuzzyMatch => {
+                let threshold = pattern.fuzzy_threshold.unwrap_or(0.8);
+                let similarity = self.calculate_fuzzy_similarity(source_column, &pattern.pattern);
+                Ok(if similarity >= threshold { Some(similarity) } else { None })
+            }
+            OverrideType::ContainsMatch => {
+                let matches = if pattern.case_sensitive {
+                    source_column.contains(&pattern.pattern)
+                } else {
+                    source_column.to_lowercase().contains(&pattern.pattern.to_lowercase())
+                };
+                Ok(if matches { Some(0.9) } else { None })
+            }
+            OverrideType::PrefixSuffixMatch => {
+                let matches = if pattern.case_sensitive {
+                    source_column.starts_with(&pattern.pattern) || source_column.ends_with(&pattern.pattern)
+                } else {
+                    let source_lower = source_column.to_lowercase();
+                    let pattern_lower = pattern.pattern.to_lowercase();
+                    source_lower.starts_with(&pattern_lower) || source_lower.ends_with(&pattern_lower)
+                };
+                Ok(if matches { Some(0.85) } else { None })
+            }
+            OverrideType::PositionalMatch => {
+                // Positional matching would require column index, which we don't have in this context
+                // This would need to be implemented at a higher level where column positions are known
+                Ok(None)
+            }
+            OverrideType::ConditionalMatch => {
+                // Conditional matching is handled by the condition evaluation
+                // If we reach here, conditions were met, so it's a match
+                Ok(Some(0.8))
+            }
+        }
+    }
+
+    /// Calculate fuzzy similarity between two strings
+    fn calculate_fuzzy_similarity(&self, s1: &str, s2: &str) -> f64 {
+        // Simple character-based similarity (can be enhanced with more sophisticated algorithms)
+        let s1_chars: std::collections::HashSet<char> = s1.to_lowercase().chars().collect();
+        let s2_chars: std::collections::HashSet<char> = s2.to_lowercase().chars().collect();
+
+        let intersection = s1_chars.intersection(&s2_chars).count();
+        let union = s1_chars.union(&s2_chars).count();
+
+        if union == 0 {
+            0.0
+        } else {
+            intersection as f64 / union as f64
+        }
+    }
+
+    /// Detect conflicts between override rules
+    fn detect_conflicts(&self, new_override: &MappingOverride) -> Result<Vec<OverrideConflict>> {
+        let mut conflicts = Vec::new();
+
+        for existing_override in &self.overrides {
+            if existing_override.id == new_override.id {
+                continue;
+            }
+
+            // Check for pattern overlap
+            if self.patterns_overlap(&existing_override.pattern, &existing_override.rule_type,
+                                   &new_override.pattern, &new_override.rule_type)? {
+
+                // Check if they have the same priority but different targets
+                if existing_override.priority == new_override.priority &&
+                   existing_override.target_field != new_override.target_field {
+                    conflicts.push(OverrideConflict {
+                        conflicting_overrides: vec![existing_override.id, new_override.id],
+                        conflict_type: ConflictType::PriorityTie,
+                        description: format!(
+                            "Overrides '{}' and '{}' have same priority ({}) but different targets",
+                            existing_override.name, new_override.name, existing_override.priority
+                        ),
+                        suggested_resolution: "Adjust priority levels or merge rules".to_string(),
+                        severity: ConflictSeverity::Medium,
+                    });
+                } else {
+                    conflicts.push(OverrideConflict {
+                        conflicting_overrides: vec![existing_override.id, new_override.id],
+                        conflict_type: ConflictType::PatternOverlap,
+                        description: format!(
+                            "Overrides '{}' and '{}' have overlapping patterns",
+                            existing_override.name, new_override.name
+                        ),
+                        suggested_resolution: "Make patterns more specific or adjust priorities".to_string(),
+                        severity: ConflictSeverity::Low,
+                    });
+                }
+            }
+
+            // Check for scope conflicts
+            if self.scopes_conflict(&existing_override.scope, &new_override.scope) {
+                conflicts.push(OverrideConflict {
+                    conflicting_overrides: vec![existing_override.id, new_override.id],
+                    conflict_type: ConflictType::ScopeConflict,
+                    description: format!(
+                        "Overrides '{}' and '{}' have conflicting scopes",
+                        existing_override.name, new_override.name
+                    ),
+                    suggested_resolution: "Adjust scope definitions or merge rules".to_string(),
+                    severity: ConflictSeverity::Medium,
+                });
+            }
+        }
+
+        Ok(conflicts)
+    }
+
+    /// Check if two patterns overlap
+    fn patterns_overlap(
+        &self,
+        pattern1: &OverridePattern,
+        type1: &OverrideType,
+        pattern2: &OverridePattern,
+        type2: &OverrideType,
+    ) -> Result<bool> {
+        // Simple overlap detection - can be enhanced
+        match (type1, type2) {
+            (OverrideType::ExactMatch, OverrideType::ExactMatch) => {
+                Ok(pattern1.pattern == pattern2.pattern)
+            }
+            (OverrideType::ContainsMatch, OverrideType::ContainsMatch) => {
+                Ok(pattern1.pattern.contains(&pattern2.pattern) || pattern2.pattern.contains(&pattern1.pattern))
+            }
+            _ => Ok(false), // More sophisticated overlap detection would be needed for other types
+        }
+    }
+
+    /// Check if two scopes conflict
+    fn scopes_conflict(&self, scope1: &OverrideScope, scope2: &OverrideScope) -> bool {
+        match (scope1, scope2) {
+            (OverrideScope::Global, _) | (_, OverrideScope::Global) => true,
+            (OverrideScope::DocumentType(dt1), OverrideScope::DocumentType(dt2)) => dt1 == dt2,
+            (OverrideScope::Organization(org1), OverrideScope::Organization(org2)) => org1 == org2,
+            (OverrideScope::User(u1), OverrideScope::User(u2)) => u1 == u2,
+            (OverrideScope::Session(s1), OverrideScope::Session(s2)) => s1 == s2,
+            (OverrideScope::Project(p1), OverrideScope::Project(p2)) => p1 == p2,
+            _ => false,
+        }
+    }
+}
+
+/// Context information for override resolution
+#[derive(Debug, Clone)]
+pub struct OverrideContext {
+    /// Document type being processed
+    pub document_type: String,
+    /// File name (if available)
+    pub file_name: Option<String>,
+    /// Total number of columns
+    pub column_count: Option<usize>,
+    /// Sample data for analysis
+    pub data_sample: Option<serde_json::Value>,
+    /// User role
+    pub user_role: Option<String>,
+    /// Organization
+    pub organization: Option<String>,
+    /// User identifier
+    pub user: Option<String>,
+    /// Session identifier
+    pub session_id: Option<String>,
+    /// Project identifier
+    pub project: Option<String>,
+    /// Custom metadata
+    pub custom_metadata: HashMap<String, serde_json::Value>,
+}
+
+impl OverrideContext {
+    /// Create a new override context
+    pub fn new(document_type: String) -> Self {
+        Self {
+            document_type,
+            file_name: None,
+            column_count: None,
+            data_sample: None,
+            user_role: None,
+            organization: None,
+            user: None,
+            session_id: None,
+            project: None,
+            custom_metadata: HashMap::new(),
+        }
+    }
+
+    /// Generate cache key for this context
+    pub fn cache_key(&self) -> String {
+        format!(
+            "{}:{}:{}:{}:{}",
+            self.document_type,
+            self.file_name.as_deref().unwrap_or(""),
+            self.organization.as_deref().unwrap_or(""),
+            self.user.as_deref().unwrap_or(""),
+            self.session_id.as_deref().unwrap_or("")
+        )
+    }
+}
+
+impl ConflictResolver {
+    /// Create a new conflict resolver
+    pub fn new() -> Self {
+        Self {
+            resolution_strategy: ConflictResolutionStrategy::HighestPriority,
+            max_conflicts_reported: 10,
+        }
+    }
+
+    /// Resolve conflicts between multiple matching overrides
+    pub fn resolve_conflicts(
+        &self,
+        matching_overrides: Vec<(MappingOverride, f64)>,
+    ) -> Result<(Option<(MappingOverride, f64)>, Vec<OverrideConflict>)> {
+        if matching_overrides.len() <= 1 {
+            return Ok((matching_overrides.into_iter().next(), Vec::new()));
+        }
+
+        let mut conflicts = Vec::new();
+
+        // Generate conflict reports
+        for i in 0..matching_overrides.len() {
+            for j in (i + 1)..matching_overrides.len() {
+                let (ref override1, _) = matching_overrides[i];
+                let (ref override2, _) = matching_overrides[j];
+
+                conflicts.push(OverrideConflict {
+                    conflicting_overrides: vec![override1.id, override2.id],
+                    conflict_type: ConflictType::PatternOverlap,
+                    description: format!(
+                        "Multiple overrides match: '{}' and '{}'",
+                        override1.name, override2.name
+                    ),
+                    suggested_resolution: "Use priority-based resolution".to_string(),
+                    severity: ConflictSeverity::Low,
+                });
+            }
+        }
+
+        // Apply resolution strategy
+        let selected = match self.resolution_strategy {
+            ConflictResolutionStrategy::HighestPriority => {
+                matching_overrides.into_iter()
+                    .max_by_key(|(override_rule, _)| override_rule.priority)
+            }
+            ConflictResolutionStrategy::MostRecent => {
+                matching_overrides.into_iter()
+                    .max_by_key(|(override_rule, _)| override_rule.created_at)
+            }
+            ConflictResolutionStrategy::MostSpecific => {
+                matching_overrides.into_iter()
+                    .max_by_key(|(override_rule, _)| override_rule.conditions.len())
+            }
+            ConflictResolutionStrategy::Combine => {
+                // For now, just use highest priority
+                matching_overrides.into_iter()
+                    .max_by_key(|(override_rule, _)| override_rule.priority)
+            }
+            ConflictResolutionStrategy::ReportAndFallback => {
+                // Return no selection and let fallback handle it
+                None
+            }
+        };
+
+        Ok((selected, conflicts))
+    }
+}
+
+impl OverrideValidator {
+    /// Create a new override validator
+    pub fn new() -> Self {
+        Self {
+            regex_cache: HashMap::new(),
+            validation_rules: ValidationRuleSet {
+                max_pattern_length: 1000,
+                max_conditions: 10,
+                allowed_target_fields: None,
+                forbidden_patterns: vec![".*".to_string(), ".+".to_string()], // Overly broad patterns
+                required_tags: HashMap::new(),
+            },
+        }
+    }
+
+    /// Validate an override rule
+    pub fn validate_override(&mut self, override_rule: &MappingOverride) -> Result<()> {
+        // Validate pattern length
+        if override_rule.pattern.pattern.len() > self.validation_rules.max_pattern_length {
+            return Err(Error::document_parsing(format!(
+                "Pattern too long: {} characters (max: {})",
+                override_rule.pattern.pattern.len(),
+                self.validation_rules.max_pattern_length
+            )));
+        }
+
+        // Validate number of conditions
+        if override_rule.conditions.len() > self.validation_rules.max_conditions {
+            return Err(Error::document_parsing(format!(
+                "Too many conditions: {} (max: {})",
+                override_rule.conditions.len(),
+                self.validation_rules.max_conditions
+            )));
+        }
+
+        // Validate regex patterns
+        if override_rule.rule_type == OverrideType::RegexPattern {
+            if let Err(e) = Regex::new(&override_rule.pattern.pattern) {
+                return Err(Error::document_parsing(format!(
+                    "Invalid regex pattern '{}': {}",
+                    override_rule.pattern.pattern, e
+                )));
+            }
+        }
+
+        // Check forbidden patterns
+        for forbidden in &self.validation_rules.forbidden_patterns {
+            if override_rule.pattern.pattern == *forbidden {
+                return Err(Error::document_parsing(format!(
+                    "Forbidden pattern: '{}'",
+                    forbidden
+                )));
+            }
+        }
+
+        // Validate target field if allowlist exists
+        if let Some(ref allowed_fields) = self.validation_rules.allowed_target_fields {
+            if !allowed_fields.contains(&override_rule.target_field) {
+                return Err(Error::document_parsing(format!(
+                    "Target field '{}' not in allowed list",
+                    override_rule.target_field
+                )));
+            }
+        }
+
+        // Validate required tags for scope
+        if let Some(required_tags) = self.validation_rules.required_tags.get(&override_rule.scope) {
+            for required_tag in required_tags {
+                if !override_rule.tags.contains(required_tag) {
+                    return Err(Error::document_parsing(format!(
+                        "Missing required tag '{}' for scope {:?}",
+                        required_tag, override_rule.scope
+                    )));
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
+
+impl MappingReportGenerator {
+    /// Create a new mapping report generator
+    pub fn new() -> Self {
+        Self {
+            config: ReportConfig::default(),
+            template_engine: None,
+            report_cache: LruCache::new(std::num::NonZeroUsize::new(100).unwrap()),
+            historical_data: HistoricalReportData::default(),
+            generation_metrics: ReportGenerationMetrics::default(),
+        }
+    }
+
+    /// Create a new report generator with custom configuration
+    pub fn with_config(config: ReportConfig) -> Self {
+        let mut generator = Self::new();
+        generator.config = config;
+
+        // Initialize template engine if template directory is specified
+        if let Some(ref template_dir) = generator.config.template_directory {
+            match tera::Tera::new(&format!("{}/**/*", template_dir)) {
+                Ok(tera) => generator.template_engine = Some(tera),
+                Err(e) => warn!("Failed to initialize template engine: {}", e),
+            }
+        }
+
+        generator
+    }
+
+    /// Generate a comprehensive mapping report
+    pub fn generate_report(
+        &mut self,
+        document_info: DocumentInfo,
+        mapping_results: &[crate::mapping::engine::MappingResult],
+        validation_results: &[ColumnValidationResult],
+        override_results: &[OverrideResolutionResult],
+        confidence_results: &[MappingConfidence],
+        report_type: ReportType,
+    ) -> Result<MappingReport> {
+        let start_time = Instant::now();
+        let report_id = Uuid::new_v4();
+
+        info!("Generating {} report with ID: {}",
+              serde_json::to_string(&report_type).unwrap_or_default(),
+              report_id);
+
+        // Check cache first if enabled
+        if self.config.enable_caching {
+            let cache_key = self.generate_cache_key(&document_info, &report_type);
+            if let Some(cached) = self.report_cache.get(&cache_key) {
+                if cached.expires_at > chrono::Utc::now() {
+                    info!("Returning cached report for key: {}", cache_key);
+                    self.generation_metrics.cache_hit_rate =
+                        (self.generation_metrics.cache_hit_rate * 0.9) + (1.0 * 0.1);
+                    return Ok(cached.report.clone());
+                }
+            }
+        }
+
+        // Update cache miss rate
+        self.generation_metrics.cache_hit_rate =
+            (self.generation_metrics.cache_hit_rate * 0.9) + (0.0 * 0.1);
+
+        // Generate mapping summary
+        let mapping_summary = self.generate_mapping_summary(mapping_results, confidence_results)?;
+
+        // Generate detailed field results
+        let detailed_results = self.generate_detailed_results(
+            mapping_results,
+            validation_results,
+            override_results,
+            confidence_results
+        )?;
+
+        // Calculate quality metrics
+        let quality_metrics = self.calculate_quality_metrics(&detailed_results, &mapping_summary)?;
+
+        // Generate recommendations
+        let recommendations = self.generate_recommendations(
+            &detailed_results,
+            &quality_metrics,
+            &mapping_summary
+        )?;
+
+        // Generate validation summary
+        let validation_summary = self.generate_validation_summary(validation_results)?;
+
+        // Generate override summary
+        let override_summary = self.generate_override_summary(override_results)?;
+
+        // Generate performance metrics
+        let performance_metrics = self.generate_performance_metrics(
+            &document_info,
+            mapping_results,
+            validation_results
+        )?;
+
+        // Generate trend analysis if historical data is available
+        let trend_analysis = if self.historical_data.quality_history.len() > 1 {
+            Some(self.generate_trend_analysis(&quality_metrics)?)
+        } else {
+            None
+        };
+
+        let generation_time = start_time.elapsed();
+
+        // Create the report
+        let report = MappingReport {
+            report_id,
+            report_type: report_type.clone(),
+            generated_at: chrono::Utc::now(),
+            document_info,
+            mapping_summary,
+            detailed_results,
+            quality_metrics: quality_metrics.clone(),
+            recommendations,
+            validation_results: validation_summary,
+            override_results: override_summary,
+            performance_metrics,
+            trend_analysis,
+        };
+
+        // Cache the report if caching is enabled
+        if self.config.enable_caching {
+            let cache_key = self.generate_cache_key(&report.document_info, &report_type);
+            let expires_at = chrono::Utc::now() +
+                chrono::Duration::minutes(self.config.cache_expiration_minutes as i64);
+
+            self.report_cache.put(cache_key, CachedReport {
+                report: report.clone(),
+                cached_at: chrono::Utc::now(),
+                expires_at,
+                format: self.config.default_format.clone(),
+            });
+        }
+
+        // Update historical data
+        self.update_historical_data(&quality_metrics, &performance_metrics);
+
+        // Update generation metrics
+        self.generation_metrics.total_reports_generated += 1;
+        let generation_time_ms = generation_time.as_millis() as f64;
+        self.generation_metrics.avg_generation_time_ms =
+            (self.generation_metrics.avg_generation_time_ms * 0.9) + (generation_time_ms * 0.1);
+        self.generation_metrics.last_updated = chrono::Utc::now();
+
+        // Check generation time against target
+        if generation_time.as_secs() > self.config.max_generation_time_seconds {
+            warn!(
+                "Report generation took {}ms, exceeding target of {}s",
+                generation_time.as_millis(),
+                self.config.max_generation_time_seconds
+            );
+        }
+
+        info!(
+            "Generated report {} in {}ms",
+            report_id,
+            generation_time.as_millis()
+        );
+
+        Ok(report)
+    }
+
+    /// Export report to specified format
+    pub fn export_report(&self, report: &MappingReport, format: ReportFormat) -> Result<String> {
+        match format {
+            ReportFormat::Json => self.export_to_json(report),
+            ReportFormat::Html => self.export_to_html(report),
+            ReportFormat::Csv => self.export_to_csv(report),
+            ReportFormat::Markdown => self.export_to_markdown(report),
+            ReportFormat::Pdf => self.export_to_pdf(report),
+        }
+    }
+
+    /// Generate cache key for report caching
+    fn generate_cache_key(&self, document_info: &DocumentInfo, report_type: &ReportType) -> String {
+        format!(
+            "{}:{}:{}:{}",
+            document_info.document_hash,
+            document_info.file_name,
+            serde_json::to_string(report_type).unwrap_or_default(),
+            document_info.processed_at.timestamp()
+        )
+    }
+
+    /// Generate mapping summary statistics
+    fn generate_mapping_summary(
+        &self,
+        mapping_results: &[crate::mapping::engine::MappingResult],
+        confidence_results: &[MappingConfidence],
+    ) -> Result<MappingSummary> {
+        let total_fields = mapping_results.len();
+        let mapped_fields = mapping_results.iter().filter(|r| !r.target_field.is_empty()).count();
+
+        // Calculate confidence statistics
+        let confidences: Vec<f64> = confidence_results.iter().map(|c| c.overall_score).collect();
+        let average_confidence = if confidences.is_empty() {
+            0.0
+        } else {
+            confidences.iter().sum::<f64>() / confidences.len() as f64
+        };
+
+        let min_confidence = confidences.iter().fold(1.0f64, |a, &b| a.min(b));
+        let max_confidence = confidences.iter().fold(0.0f64, |a, &b| a.max(b));
+
+        let high_confidence_mappings = confidences.iter().filter(|&&c| c > 0.9).count();
+        let low_confidence_mappings = confidences.iter().filter(|&&c| c < 0.5).count();
+
+        let success_rate = if total_fields == 0 {
+            0.0
+        } else {
+            mapped_fields as f64 / total_fields as f64
+        };
+
+        Ok(MappingSummary {
+            total_fields,
+            mapped_fields,
+            required_fields_mapped: 0, // Will be calculated from validation results
+            required_fields_missing: 0,
+            optional_fields_mapped: mapped_fields,
+            average_confidence,
+            min_confidence,
+            max_confidence,
+            high_confidence_mappings,
+            low_confidence_mappings,
+            processing_time: Duration::from_millis(0), // Will be set from performance metrics
+            success_rate,
+        })
+    }
+
+    /// Generate detailed field mapping results
+    fn generate_detailed_results(
+        &self,
+        mapping_results: &[crate::mapping::engine::MappingResult],
+        validation_results: &[ColumnValidationResult],
+        override_results: &[OverrideResolutionResult],
+        confidence_results: &[MappingConfidence],
+    ) -> Result<Vec<FieldMappingResult>> {
+        let mut detailed_results = Vec::new();
+
+        for (i, mapping_result) in mapping_results.iter().enumerate() {
+            let validation_result = validation_results.get(i).cloned();
+            let override_result = override_results.get(i);
+            let confidence_result = confidence_results.get(i);
+
+            let field_result = FieldMappingResult {
+                field_id: format!("field_{}", i),
+                target_field: mapping_result.target_field.clone(),
+                source_column: Some(mapping_result.source_column.clone()),
+                confidence_score: confidence_result.map(|c| c.overall_score).unwrap_or(mapping_result.confidence),
+                mapping_successful: !mapping_result.target_field.is_empty(),
+                required: validation_result.as_ref().map(|v| v.severity == ValidationSeverity::Error).unwrap_or(false),
+                validation_result,
+                override_applied: override_result.and_then(|o| o.applied_override.as_ref().map(|ao| ao.name.clone())),
+                alternatives: self.generate_alternatives(mapping_result)?,
+                issues: self.generate_field_issues(mapping_result, confidence_result)?,
+                data_quality: None, // TODO: Implement data quality assessment
+            };
+
+            detailed_results.push(field_result);
+        }
+
+        Ok(detailed_results)
+    }
+
+    /// Generate alternative mapping suggestions
+    fn generate_alternatives(&self, mapping_result: &crate::mapping::engine::MappingResult) -> Result<Vec<MappingAlternative>> {
+        let mut alternatives = Vec::new();
+
+        // Generate alternatives based on confidence score
+        if mapping_result.confidence < 0.8 {
+            // Suggest similar column names (simplified implementation)
+            let similar_columns = vec![
+                format!("{}_alt", mapping_result.source_column),
+                format!("alt_{}", mapping_result.source_column),
+            ];
+
+            for alt_column in similar_columns {
+                alternatives.push(MappingAlternative {
+                    source_column: alt_column,
+                    confidence_score: mapping_result.confidence * 0.8,
+                    reason: "Similar column name pattern".to_string(),
+                });
+            }
+        }
+
+        Ok(alternatives)
+    }
+
+    /// Generate issues for a field mapping
+    fn generate_field_issues(
+        &self,
+        mapping_result: &crate::mapping::engine::MappingResult,
+        confidence_result: Option<&MappingConfidence>,
+    ) -> Result<Vec<MappingIssue>> {
+        let mut issues = Vec::new();
+
+        // Low confidence issue
+        if mapping_result.confidence < 0.5 {
+            issues.push(MappingIssue {
+                severity: IssueSeverity::Warning,
+                category: IssueCategory::LowConfidence,
+                description: format!(
+                    "Low confidence mapping ({:.1}%) for column '{}'",
+                    mapping_result.confidence * 100.0,
+                    mapping_result.source_column
+                ),
+                suggested_resolution: Some("Review mapping manually or provide custom override".to_string()),
+                impact: "May result in incorrect data mapping".to_string(),
+            });
+        }
+
+        // Add issues from confidence result
+        if let Some(confidence) = confidence_result {
+            for risk_factor in &confidence.risk_factors {
+                let severity = match risk_factor.severity {
+                    RiskSeverity::Low => IssueSeverity::Info,
+                    RiskSeverity::Medium => IssueSeverity::Warning,
+                    RiskSeverity::High => IssueSeverity::Error,
+                    RiskSeverity::Critical => IssueSeverity::Critical,
+                };
+
+                issues.push(MappingIssue {
+                    severity,
+                    category: IssueCategory::DataQuality, // Simplified categorization
+                    description: risk_factor.description.clone(),
+                    suggested_resolution: None,
+                    impact: format!("Confidence impact: {:.1}%", risk_factor.confidence_impact * 100.0),
+                });
+            }
+        }
+
+        Ok(issues)
+    }
+
+    /// Calculate overall quality metrics
+    fn calculate_quality_metrics(
+        &self,
+        detailed_results: &[FieldMappingResult],
+        mapping_summary: &MappingSummary,
+    ) -> Result<QualityMetrics> {
+        let total_fields = detailed_results.len() as f64;
+
+        // Calculate completeness score
+        let mapped_fields = detailed_results.iter().filter(|r| r.mapping_successful).count() as f64;
+        let completeness_score = if total_fields > 0.0 {
+            mapped_fields / total_fields
+        } else {
+            0.0
+        };
+
+        // Calculate accuracy score based on confidence
+        let accuracy_score = mapping_summary.average_confidence;
+
+        // Calculate consistency score (simplified)
+        let high_confidence_count = detailed_results.iter()
+            .filter(|r| r.confidence_score > 0.8)
+            .count() as f64;
+        let consistency_score = if total_fields > 0.0 {
+            high_confidence_count / total_fields
+        } else {
+            0.0
+        };
+
+        // Calculate overall quality score
+        let overall_quality_score = (completeness_score * 0.4) + (accuracy_score * 0.4) + (consistency_score * 0.2);
+
+        // Determine risk level
+        let risk_level = if overall_quality_score >= 0.9 {
+            RiskLevel::VeryLow
+        } else if overall_quality_score >= 0.8 {
+            RiskLevel::Low
+        } else if overall_quality_score >= 0.7 {
+            RiskLevel::Medium
+        } else if overall_quality_score >= 0.6 {
+            RiskLevel::High
+        } else {
+            RiskLevel::VeryHigh
+        };
+
+        // Determine quality grade
+        let quality_grade = if overall_quality_score >= 0.9 {
+            QualityGrade::A
+        } else if overall_quality_score >= 0.8 {
+            QualityGrade::B
+        } else if overall_quality_score >= 0.7 {
+            QualityGrade::C
+        } else if overall_quality_score >= 0.6 {
+            QualityGrade::D
+        } else {
+            QualityGrade::F
+        };
+
+        // Count issues
+        let critical_issues = detailed_results.iter()
+            .flat_map(|r| &r.issues)
+            .filter(|i| i.severity == IssueSeverity::Critical)
+            .count();
+
+        let warnings = detailed_results.iter()
+            .flat_map(|r| &r.issues)
+            .filter(|i| i.severity == IssueSeverity::Warning)
+            .count();
+
+        Ok(QualityMetrics {
+            completeness_score,
+            accuracy_score,
+            consistency_score,
+            overall_quality_score,
+            risk_level,
+            quality_grade,
+            compliance_percentage: overall_quality_score * 100.0,
+            critical_issues,
+            warnings,
+        })
+    }
+
+    /// Generate actionable recommendations
+    fn generate_recommendations(
+        &self,
+        detailed_results: &[FieldMappingResult],
+        quality_metrics: &QualityMetrics,
+        mapping_summary: &MappingSummary,
+    ) -> Result<Vec<Recommendation>> {
+        let mut recommendations = Vec::new();
+
+        // Low overall quality recommendation
+        if quality_metrics.overall_quality_score < 0.7 {
+            recommendations.push(Recommendation {
+                priority: RecommendationPriority::High,
+                category: RecommendationCategory::DataQuality,
+                title: "Improve Overall Data Quality".to_string(),
+                description: format!(
+                    "Overall quality score is {:.1}%, which is below acceptable threshold",
+                    quality_metrics.overall_quality_score * 100.0
+                ),
+                suggested_action: "Review low-confidence mappings and provide custom overrides where needed".to_string(),
+                impact_assessment: "Improving data quality will increase compliance and reduce processing errors".to_string(),
+                effort_level: EffortLevel::Medium,
+                related_fields: detailed_results.iter()
+                    .filter(|r| r.confidence_score < 0.7)
+                    .map(|r| r.field_id.clone())
+                    .collect(),
+            });
+        }
+
+        // Low confidence mappings recommendation
+        let low_confidence_count = detailed_results.iter()
+            .filter(|r| r.confidence_score < 0.5)
+            .count();
+
+        if low_confidence_count > 0 {
+            recommendations.push(Recommendation {
+                priority: RecommendationPriority::Medium,
+                category: RecommendationCategory::MappingAccuracy,
+                title: "Review Low Confidence Mappings".to_string(),
+                description: format!(
+                    "{} field(s) have confidence scores below 50%",
+                    low_confidence_count
+                ),
+                suggested_action: "Manually review these mappings and consider creating custom override rules".to_string(),
+                impact_assessment: "Addressing low confidence mappings will improve data accuracy".to_string(),
+                effort_level: EffortLevel::Low,
+                related_fields: detailed_results.iter()
+                    .filter(|r| r.confidence_score < 0.5)
+                    .map(|r| r.field_id.clone())
+                    .collect(),
+            });
+        }
+
+        // Performance recommendation
+        if mapping_summary.processing_time.as_millis() > 5000 {
+            recommendations.push(Recommendation {
+                priority: RecommendationPriority::Low,
+                category: RecommendationCategory::Performance,
+                title: "Optimize Processing Performance".to_string(),
+                description: format!(
+                    "Processing took {}ms, which exceeds optimal performance",
+                    mapping_summary.processing_time.as_millis()
+                ),
+                suggested_action: "Consider enabling caching or optimizing mapping rules".to_string(),
+                impact_assessment: "Performance improvements will reduce processing time and resource usage".to_string(),
+                effort_level: EffortLevel::Medium,
+                related_fields: Vec::new(),
+            });
+        }
+
+        // Critical issues recommendation
+        if quality_metrics.critical_issues > 0 {
+            recommendations.push(Recommendation {
+                priority: RecommendationPriority::Critical,
+                category: RecommendationCategory::Compliance,
+                title: "Address Critical Issues".to_string(),
+                description: format!(
+                    "{} critical issue(s) detected that may prevent compliance",
+                    quality_metrics.critical_issues
+                ),
+                suggested_action: "Immediately review and resolve all critical issues before proceeding".to_string(),
+                impact_assessment: "Critical issues must be resolved to ensure compliance and data integrity".to_string(),
+                effort_level: EffortLevel::High,
+                related_fields: detailed_results.iter()
+                    .filter(|r| r.issues.iter().any(|i| i.severity == IssueSeverity::Critical))
+                    .map(|r| r.field_id.clone())
+                    .collect(),
+            });
+        }
+
+        Ok(recommendations)
+    }
+
+    /// Generate validation summary
+    fn generate_validation_summary(&self, validation_results: &[ColumnValidationResult]) -> Result<ValidationSummary> {
+        let total_validations = validation_results.len();
+        let validations_passed = validation_results.iter().filter(|r| r.passed).count();
+        let validations_failed = total_validations - validations_passed;
+        let validation_warnings = validation_results.iter()
+            .filter(|r| r.severity == ValidationSeverity::Warning)
+            .count();
+
+        let success_rate = if total_validations > 0 {
+            validations_passed as f64 / total_validations as f64
+        } else {
+            0.0
+        };
+
+        // Generate common failures (simplified)
+        let mut common_failures = Vec::new();
+        let invalid_count = validation_results.iter()
+            .filter(|r| r.status == ValidationStatus::Invalid)
+            .count();
+
+        if invalid_count > 0 {
+            common_failures.push(ValidationFailureInfo {
+                failure_type: "Invalid Data Format".to_string(),
+                occurrence_count: invalid_count,
+                failure_percentage: (invalid_count as f64 / total_validations as f64) * 100.0,
+                example_values: vec!["Example invalid value".to_string()],
+                suggested_fixes: vec!["Correct data format".to_string()],
+            });
+        }
+
+        Ok(ValidationSummary {
+            total_validations,
+            validations_passed,
+            validations_failed,
+            validation_warnings,
+            success_rate,
+            common_failures,
+            performance_metrics: ValidationPerformanceMetrics {
+                avg_validation_time_us: 100.0, // Placeholder
+                total_validation_time: Duration::from_millis(total_validations as u64),
+                slowest_validations: Vec::new(),
+            },
+        })
+    }
+
+    /// Generate override summary
+    fn generate_override_summary(&self, override_results: &[OverrideResolutionResult]) -> Result<OverrideSummary> {
+        let total_overrides_evaluated = override_results.len();
+        let overrides_applied = override_results.iter().filter(|r| r.override_applied).count();
+        let conflicts_detected = override_results.iter()
+            .map(|r| r.conflicts.len())
+            .sum();
+
+        let application_success_rate = if total_overrides_evaluated > 0 {
+            overrides_applied as f64 / total_overrides_evaluated as f64
+        } else {
+            0.0
+        };
+
+        Ok(OverrideSummary {
+            total_overrides_evaluated,
+            overrides_applied,
+            conflicts_detected,
+            application_success_rate,
+            frequently_applied: Vec::new(), // TODO: Implement based on historical data
+            performance_metrics: OverridePerformanceMetrics {
+                avg_resolution_time_us: override_results.iter()
+                    .map(|r| r.resolution_time.as_micros() as f64)
+                    .sum::<f64>() / override_results.len().max(1) as f64,
+                cache_hit_rate: override_results.iter()
+                    .filter(|r| r.from_cache)
+                    .count() as f64 / override_results.len().max(1) as f64,
+                total_processing_time: override_results.iter()
+                    .map(|r| r.resolution_time)
+                    .sum(),
+            },
+        })
+    }
+
+    /// Generate performance metrics
+    fn generate_performance_metrics(
+        &self,
+        document_info: &DocumentInfo,
+        _mapping_results: &[crate::mapping::engine::MappingResult],
+        _validation_results: &[ColumnValidationResult],
+    ) -> Result<ProcessingMetrics> {
+        Ok(ProcessingMetrics {
+            total_processing_time: document_info.processing_duration,
+            column_detection_time: Duration::from_millis(100), // Placeholder
+            mapping_time: Duration::from_millis(200), // Placeholder
+            validation_time: Duration::from_millis(150), // Placeholder
+            override_time: Duration::from_millis(50), // Placeholder
+            memory_usage: MemoryUsageMetrics {
+                peak_memory_bytes: 1024 * 1024, // Placeholder: 1MB
+                avg_memory_bytes: 512 * 1024,   // Placeholder: 512KB
+                efficiency_score: 0.8,
+            },
+            throughput: ThroughputMetrics {
+                rows_per_second: document_info.total_rows as f64 / document_info.processing_duration.as_secs_f64(),
+                fields_per_second: (document_info.total_rows * document_info.total_columns) as f64 / document_info.processing_duration.as_secs_f64(),
+                bytes_per_second: document_info.file_size as f64 / document_info.processing_duration.as_secs_f64(),
+            },
+        })
+    }
+
+    /// Generate trend analysis
+    fn generate_trend_analysis(&self, current_quality: &QualityMetrics) -> Result<TrendAnalysis> {
+        let time_period = TimePeriod {
+            start_date: chrono::Utc::now() - chrono::Duration::days(30),
+            end_date: chrono::Utc::now(),
+            data_points: self.historical_data.quality_history.len(),
+        };
+
+        // Analyze quality trends (simplified)
+        let overall_quality_trend = if self.historical_data.quality_history.len() >= 2 {
+            let recent_avg = self.historical_data.quality_history.iter()
+                .rev()
+                .take(5)
+                .map(|h| h.overall_score)
+                .sum::<f64>() / 5.0;
+
+            if recent_avg > current_quality.overall_quality_score {
+                TrendDirection::Declining
+            } else if recent_avg < current_quality.overall_quality_score {
+                TrendDirection::Improving
+            } else {
+                TrendDirection::Stable
+            }
+        } else {
+            TrendDirection::InsufficientData
+        };
+
+        Ok(TrendAnalysis {
+            time_period,
+            quality_trends: QualityTrends {
+                overall_quality_trend,
+                completeness_trend: TrendDirection::Stable, // Simplified
+                accuracy_trend: TrendDirection::Stable,     // Simplified
+                consistency_trend: TrendDirection::Stable,  // Simplified
+                historical_scores: self.historical_data.quality_history.clone(),
+            },
+            performance_trends: PerformanceTrends {
+                processing_time_trend: TrendDirection::Stable,
+                throughput_trend: TrendDirection::Stable,
+                memory_usage_trend: TrendDirection::Stable,
+                historical_performance: self.historical_data.performance_history.clone(),
+            },
+            issue_trends: IssueTrends {
+                critical_issues_trend: TrendDirection::Stable,
+                warnings_trend: TrendDirection::Stable,
+                common_issues: Vec::new(),
+            },
+            trend_recommendations: Vec::new(),
+        })
+    }
+
+    /// Update historical data with current metrics
+    fn update_historical_data(&mut self, quality_metrics: &QualityMetrics, performance_metrics: &ProcessingMetrics) {
+        let now = chrono::Utc::now();
+
+        // Add quality data point
+        self.historical_data.quality_history.push(HistoricalQualityScore {
+            timestamp: now,
+            overall_score: quality_metrics.overall_quality_score,
+            completeness_score: quality_metrics.completeness_score,
+            accuracy_score: quality_metrics.accuracy_score,
+            consistency_score: quality_metrics.consistency_score,
+        });
+
+        // Add performance data point
+        self.historical_data.performance_history.push(HistoricalPerformanceData {
+            timestamp: now,
+            processing_time_ms: performance_metrics.total_processing_time.as_millis() as u64,
+            throughput_rps: performance_metrics.throughput.rows_per_second,
+            memory_usage_bytes: performance_metrics.memory_usage.peak_memory_bytes,
+        });
+
+        // Cleanup old data based on retention policy
+        let retention_cutoff = now - chrono::Duration::days(self.historical_data.max_retention_days as i64);
+
+        self.historical_data.quality_history.retain(|h| h.timestamp > retention_cutoff);
+        self.historical_data.performance_history.retain(|h| h.timestamp > retention_cutoff);
+    }
+
+    /// Export report to JSON format
+    fn export_to_json(&self, report: &MappingReport) -> Result<String> {
+        serde_json::to_string_pretty(report)
+            .map_err(|e| Error::document_parsing(format!("Failed to serialize report to JSON: {}", e)))
+    }
+
+    /// Export report to HTML format
+    fn export_to_html(&self, report: &MappingReport) -> Result<String> {
+        if let Some(ref tera) = self.template_engine {
+            let mut context = tera::Context::new();
+            context.insert("report", report);
+
+            tera.render("mapping_report.html", &context)
+                .map_err(|e| Error::document_parsing(format!("Failed to render HTML report: {}", e)))
+        } else {
+            // Fallback to simple HTML generation
+            Ok(self.generate_simple_html(report))
+        }
+    }
+
+    /// Export report to CSV format
+    fn export_to_csv(&self, report: &MappingReport) -> Result<String> {
+        let mut csv_content = String::new();
+
+        // Header
+        csv_content.push_str("Field ID,Target Field,Source Column,Confidence Score,Mapping Successful,Required,Issues\n");
+
+        // Data rows
+        for result in &report.detailed_results {
+            csv_content.push_str(&format!(
+                "{},{},{},{:.3},{},{},{}\n",
+                result.field_id,
+                result.target_field,
+                result.source_column.as_deref().unwrap_or(""),
+                result.confidence_score,
+                result.mapping_successful,
+                result.required,
+                result.issues.len()
+            ));
+        }
+
+        Ok(csv_content)
+    }
+
+    /// Export report to Markdown format
+    fn export_to_markdown(&self, report: &MappingReport) -> Result<String> {
+        let mut md_content = String::new();
+
+        md_content.push_str(&format!("# Mapping Validation Report\n\n"));
+        md_content.push_str(&format!("**Report ID:** {}\n", report.report_id));
+        md_content.push_str(&format!("**Generated:** {}\n", report.generated_at.format("%Y-%m-%d %H:%M:%S UTC")));
+        md_content.push_str(&format!("**Document:** {}\n\n", report.document_info.file_name));
+
+        md_content.push_str("## Summary\n\n");
+        md_content.push_str(&format!("- **Total Fields:** {}\n", report.mapping_summary.total_fields));
+        md_content.push_str(&format!("- **Mapped Fields:** {}\n", report.mapping_summary.mapped_fields));
+        md_content.push_str(&format!("- **Success Rate:** {:.1}%\n", report.mapping_summary.success_rate * 100.0));
+        md_content.push_str(&format!("- **Average Confidence:** {:.1}%\n", report.mapping_summary.average_confidence * 100.0));
+        md_content.push_str(&format!("- **Quality Grade:** {:?}\n\n", report.quality_metrics.quality_grade));
+
+        md_content.push_str("## Recommendations\n\n");
+        for (i, rec) in report.recommendations.iter().enumerate() {
+            md_content.push_str(&format!("{}. **{}** (Priority: {:?})\n", i + 1, rec.title, rec.priority));
+            md_content.push_str(&format!("   - {}\n", rec.description));
+            md_content.push_str(&format!("   - Action: {}\n\n", rec.suggested_action));
+        }
+
+        Ok(md_content)
+    }
+
+    /// Export report to PDF format (placeholder implementation)
+    fn export_to_pdf(&self, _report: &MappingReport) -> Result<String> {
+        // This would require a PDF generation library like `printpdf` or `wkhtmltopdf`
+        // For now, return an error indicating PDF export is not implemented
+        Err(Error::document_parsing("PDF export not yet implemented".to_string()))
+    }
+
+    /// Generate simple HTML report (fallback when no template engine)
+    fn generate_simple_html(&self, report: &MappingReport) -> String {
+        format!(
+            r#"<!DOCTYPE html>
+<html>
+<head>
+    <title>Mapping Validation Report</title>
+    <style>
+        body {{ font-family: Arial, sans-serif; margin: 20px; }}
+        .header {{ background-color: #f0f0f0; padding: 10px; border-radius: 5px; }}
+        .summary {{ margin: 20px 0; }}
+        .quality-grade {{ font-size: 24px; font-weight: bold; }}
+        .recommendations {{ margin: 20px 0; }}
+        .recommendation {{ margin: 10px 0; padding: 10px; border-left: 4px solid #007acc; }}
+        table {{ border-collapse: collapse; width: 100%; }}
+        th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
+        th {{ background-color: #f2f2f2; }}
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Mapping Validation Report</h1>
+        <p><strong>Report ID:</strong> {}</p>
+        <p><strong>Generated:</strong> {}</p>
+        <p><strong>Document:</strong> {}</p>
+    </div>
+
+    <div class="summary">
+        <h2>Summary</h2>
+        <p><strong>Total Fields:</strong> {}</p>
+        <p><strong>Mapped Fields:</strong> {}</p>
+        <p><strong>Success Rate:</strong> {:.1}%</p>
+        <p><strong>Average Confidence:</strong> {:.1}%</p>
+        <p class="quality-grade"><strong>Quality Grade:</strong> {:?}</p>
+    </div>
+
+    <div class="recommendations">
+        <h2>Recommendations</h2>
+        {}
+    </div>
+</body>
+</html>"#,
+            report.report_id,
+            report.generated_at.format("%Y-%m-%d %H:%M:%S UTC"),
+            report.document_info.file_name,
+            report.mapping_summary.total_fields,
+            report.mapping_summary.mapped_fields,
+            report.mapping_summary.success_rate * 100.0,
+            report.mapping_summary.average_confidence * 100.0,
+            report.quality_metrics.quality_grade,
+            report.recommendations.iter()
+                .map(|r| format!(r#"<div class="recommendation"><strong>{}</strong> (Priority: {:?})<br>{}</div>"#, r.title, r.priority, r.description))
+                .collect::<Vec<_>>()
+                .join("")
+        )
+    }
+
+    /// Get generation metrics
+    pub fn get_metrics(&self) -> &ReportGenerationMetrics {
+        &self.generation_metrics
+    }
+
+    /// Clear report cache
+    pub fn clear_cache(&mut self) {
+        self.report_cache.clear();
+    }
+
+    /// Get historical data
+    pub fn get_historical_data(&self) -> &HistoricalReportData {
+        &self.historical_data
+    }
+}
+
+impl Default for ReportConfig {
+    fn default() -> Self {
+        Self {
+            default_format: ReportFormat::Html,
+            include_visualizations: true,
+            max_generation_time_seconds: 30,
+            enable_caching: true,
+            cache_expiration_minutes: 60,
+            include_detailed_analysis: true,
+            include_recommendations: true,
+            template_directory: None,
+        }
+    }
+}
+
 impl DocumentValidator {
     /// Create a new document validator
     #[must_use]
@@ -2959,5 +5577,776 @@ mod tests {
         assert!(adjusted_score > 0.8); // Should be higher due to exact match bonus
         assert!(!adjustments.is_empty());
         assert!(adjustments.iter().any(|a| matches!(a.adjustment_type, AdjustmentType::ExactMatchBonus)));
+    }
+
+    #[test]
+    fn test_mapping_override_engine_creation() {
+        let engine = MappingOverrideEngine::new();
+        assert_eq!(engine.overrides.len(), 0);
+        assert_eq!(engine.get_metrics().total_applications, 0);
+    }
+
+    #[test]
+    fn test_add_override_rule() {
+        let mut engine = MappingOverrideEngine::new();
+
+        let override_rule = MappingOverride {
+            id: Uuid::new_v4(),
+            name: "Test Override".to_string(),
+            description: "Test override rule".to_string(),
+            rule_type: OverrideType::ExactMatch,
+            pattern: OverridePattern {
+                pattern: "Asset ID".to_string(),
+                case_sensitive: false,
+                whole_word: true,
+                regex_flags: None,
+                fuzzy_threshold: None,
+                position_constraints: None,
+            },
+            target_field: "uuid".to_string(),
+            priority: 100,
+            conditions: Vec::new(),
+            scope: OverrideScope::Global,
+            created_by: "test_user".to_string(),
+            created_at: chrono::Utc::now(),
+            modified_at: chrono::Utc::now(),
+            active: true,
+            version: 1,
+            tags: vec!["test".to_string()],
+        };
+
+        let result = engine.add_override(override_rule);
+        assert!(result.is_ok());
+        assert_eq!(engine.overrides.len(), 1);
+    }
+
+    #[test]
+    fn test_override_pattern_matching() {
+        let engine = MappingOverrideEngine::new();
+
+        // Test exact match
+        let pattern = OverridePattern {
+            pattern: "Asset Name".to_string(),
+            case_sensitive: false,
+            whole_word: true,
+            regex_flags: None,
+            fuzzy_threshold: None,
+            position_constraints: None,
+        };
+
+        let result = engine.check_pattern_match(&pattern, &OverrideType::ExactMatch, "Asset Name").unwrap();
+        assert_eq!(result, Some(1.0));
+
+        let result = engine.check_pattern_match(&pattern, &OverrideType::ExactMatch, "asset name").unwrap();
+        assert_eq!(result, Some(1.0)); // Case insensitive
+
+        let result = engine.check_pattern_match(&pattern, &OverrideType::ExactMatch, "Component Name").unwrap();
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_override_conditions() {
+        let engine = MappingOverrideEngine::new();
+        let context = OverrideContext::new("inventory".to_string());
+
+        let conditions = vec![
+            OverrideCondition {
+                condition_type: ConditionType::DocumentType,
+                field: "document_type".to_string(),
+                operator: ConditionOperator::Equals,
+                value: serde_json::Value::String("inventory".to_string()),
+                required: true,
+            }
+        ];
+
+        let result = engine.evaluate_conditions(&conditions, "Asset ID", "inventory", &context).unwrap();
+        assert!(result);
+
+        let result = engine.evaluate_conditions(&conditions, "Asset ID", "poam", &context).unwrap();
+        assert!(!result);
+    }
+
+    #[test]
+    fn test_override_scope_matching() {
+        let engine = MappingOverrideEngine::new();
+        let mut context = OverrideContext::new("inventory".to_string());
+        context.organization = Some("test_org".to_string());
+
+        // Test global scope
+        let result = engine.check_scope_match(&OverrideScope::Global, &context).unwrap();
+        assert!(result);
+
+        // Test document type scope
+        let result = engine.check_scope_match(&OverrideScope::DocumentType("inventory".to_string()), &context).unwrap();
+        assert!(result);
+
+        let result = engine.check_scope_match(&OverrideScope::DocumentType("poam".to_string()), &context).unwrap();
+        assert!(!result);
+
+        // Test organization scope
+        let result = engine.check_scope_match(&OverrideScope::Organization("test_org".to_string()), &context).unwrap();
+        assert!(result);
+
+        let result = engine.check_scope_match(&OverrideScope::Organization("other_org".to_string()), &context).unwrap();
+        assert!(!result);
+    }
+
+    #[test]
+    fn test_override_conflict_detection() {
+        let mut engine = MappingOverrideEngine::new();
+
+        // Add first override
+        let override1 = MappingOverride {
+            id: Uuid::new_v4(),
+            name: "Override 1".to_string(),
+            description: "First override".to_string(),
+            rule_type: OverrideType::ExactMatch,
+            pattern: OverridePattern {
+                pattern: "Asset ID".to_string(),
+                case_sensitive: false,
+                whole_word: true,
+                regex_flags: None,
+                fuzzy_threshold: None,
+                position_constraints: None,
+            },
+            target_field: "uuid".to_string(),
+            priority: 100,
+            conditions: Vec::new(),
+            scope: OverrideScope::Global,
+            created_by: "test_user".to_string(),
+            created_at: chrono::Utc::now(),
+            modified_at: chrono::Utc::now(),
+            active: true,
+            version: 1,
+            tags: Vec::new(),
+        };
+
+        engine.add_override(override1).unwrap();
+
+        // Add conflicting override
+        let override2 = MappingOverride {
+            id: Uuid::new_v4(),
+            name: "Override 2".to_string(),
+            description: "Conflicting override".to_string(),
+            rule_type: OverrideType::ExactMatch,
+            pattern: OverridePattern {
+                pattern: "Asset ID".to_string(),
+                case_sensitive: false,
+                whole_word: true,
+                regex_flags: None,
+                fuzzy_threshold: None,
+                position_constraints: None,
+            },
+            target_field: "identifier".to_string(), // Different target
+            priority: 100, // Same priority
+            conditions: Vec::new(),
+            scope: OverrideScope::Global,
+            created_by: "test_user".to_string(),
+            created_at: chrono::Utc::now(),
+            modified_at: chrono::Utc::now(),
+            active: true,
+            version: 1,
+            tags: Vec::new(),
+        };
+
+        let conflicts = engine.detect_conflicts(&override2).unwrap();
+        assert!(!conflicts.is_empty());
+        assert!(conflicts.iter().any(|c| c.conflict_type == ConflictType::PriorityTie));
+    }
+
+    #[test]
+    fn test_override_json_serialization() {
+        let mut engine = MappingOverrideEngine::new();
+
+        let override_rule = MappingOverride {
+            id: Uuid::new_v4(),
+            name: "Test Override".to_string(),
+            description: "Test override for serialization".to_string(),
+            rule_type: OverrideType::RegexPattern,
+            pattern: OverridePattern {
+                pattern: r"(?i)asset.*id".to_string(),
+                case_sensitive: false,
+                whole_word: false,
+                regex_flags: Some("i".to_string()),
+                fuzzy_threshold: None,
+                position_constraints: None,
+            },
+            target_field: "uuid".to_string(),
+            priority: 50,
+            conditions: Vec::new(),
+            scope: OverrideScope::DocumentType("inventory".to_string()),
+            created_by: "test_user".to_string(),
+            created_at: chrono::Utc::now(),
+            modified_at: chrono::Utc::now(),
+            active: true,
+            version: 1,
+            tags: vec!["test".to_string(), "regex".to_string()],
+        };
+
+        engine.add_override(override_rule).unwrap();
+
+        let json = engine.export_overrides_to_json().unwrap();
+        assert!(json.contains("Test Override"));
+        assert!(json.contains("asset.*id"));
+
+        // Test loading from JSON
+        let mut new_engine = MappingOverrideEngine::new();
+        let loaded_count = new_engine.load_overrides_from_json(&json).unwrap();
+        assert_eq!(loaded_count, 1);
+        assert_eq!(new_engine.overrides.len(), 1);
+    }
+
+    #[test]
+    fn test_override_resolution() {
+        let mut engine = MappingOverrideEngine::new();
+
+        let override_rule = MappingOverride {
+            id: Uuid::new_v4(),
+            name: "Asset ID Override".to_string(),
+            description: "Maps Asset ID to uuid field".to_string(),
+            rule_type: OverrideType::ExactMatch,
+            pattern: OverridePattern {
+                pattern: "Asset ID".to_string(),
+                case_sensitive: false,
+                whole_word: true,
+                regex_flags: None,
+                fuzzy_threshold: None,
+                position_constraints: None,
+            },
+            target_field: "uuid".to_string(),
+            priority: 100,
+            conditions: Vec::new(),
+            scope: OverrideScope::Global,
+            created_by: "test_user".to_string(),
+            created_at: chrono::Utc::now(),
+            modified_at: chrono::Utc::now(),
+            active: true,
+            version: 1,
+            tags: Vec::new(),
+        };
+
+        engine.add_override(override_rule).unwrap();
+
+        let context = OverrideContext::new("inventory".to_string());
+        let result = engine.resolve_mapping("Asset ID", "inventory", &context).unwrap();
+
+        assert!(result.override_applied);
+        assert_eq!(result.target_field, Some("uuid".to_string()));
+        assert_eq!(result.confidence, 1.0);
+        assert!(result.conflicts.is_empty());
+    }
+
+    #[test]
+    fn test_override_cache() {
+        let mut engine = MappingOverrideEngine::new();
+
+        let override_rule = MappingOverride {
+            id: Uuid::new_v4(),
+            name: "Cached Override".to_string(),
+            description: "Test caching".to_string(),
+            rule_type: OverrideType::ExactMatch,
+            pattern: OverridePattern {
+                pattern: "Test Column".to_string(),
+                case_sensitive: false,
+                whole_word: true,
+                regex_flags: None,
+                fuzzy_threshold: None,
+                position_constraints: None,
+            },
+            target_field: "test_field".to_string(),
+            priority: 100,
+            conditions: Vec::new(),
+            scope: OverrideScope::Global,
+            created_by: "test_user".to_string(),
+            created_at: chrono::Utc::now(),
+            modified_at: chrono::Utc::now(),
+            active: true,
+            version: 1,
+            tags: Vec::new(),
+        };
+
+        engine.add_override(override_rule).unwrap();
+
+        let context = OverrideContext::new("test".to_string());
+
+        // First call - should not be from cache
+        let result1 = engine.resolve_mapping("Test Column", "test", &context).unwrap();
+        assert!(!result1.from_cache);
+
+        // Second call - should be from cache
+        let result2 = engine.resolve_mapping("Test Column", "test", &context).unwrap();
+        assert!(result2.from_cache);
+
+        assert_eq!(result1.target_field, result2.target_field);
+    }
+
+    #[test]
+    fn test_mapping_report_generator_creation() {
+        let generator = MappingReportGenerator::new();
+        assert_eq!(generator.config.default_format, ReportFormat::Html);
+        assert!(generator.config.enable_caching);
+        assert_eq!(generator.generation_metrics.total_reports_generated, 0);
+    }
+
+    #[test]
+    fn test_report_config_default() {
+        let config = ReportConfig::default();
+        assert_eq!(config.default_format, ReportFormat::Html);
+        assert!(config.include_visualizations);
+        assert_eq!(config.max_generation_time_seconds, 30);
+        assert!(config.enable_caching);
+        assert_eq!(config.cache_expiration_minutes, 60);
+    }
+
+    #[test]
+    fn test_quality_grade_ordering() {
+        assert!(QualityGrade::A > QualityGrade::B);
+        assert!(QualityGrade::B > QualityGrade::C);
+        assert!(QualityGrade::C > QualityGrade::D);
+        assert!(QualityGrade::D > QualityGrade::F);
+    }
+
+    #[test]
+    fn test_risk_level_ordering() {
+        assert!(RiskLevel::VeryHigh > RiskLevel::High);
+        assert!(RiskLevel::High > RiskLevel::Medium);
+        assert!(RiskLevel::Medium > RiskLevel::Low);
+        assert!(RiskLevel::Low > RiskLevel::VeryLow);
+    }
+
+    #[test]
+    fn test_issue_severity_ordering() {
+        assert!(IssueSeverity::Critical > IssueSeverity::Error);
+        assert!(IssueSeverity::Error > IssueSeverity::Warning);
+        assert!(IssueSeverity::Warning > IssueSeverity::Info);
+    }
+
+    #[test]
+    fn test_recommendation_priority_ordering() {
+        assert!(RecommendationPriority::Critical > RecommendationPriority::High);
+        assert!(RecommendationPriority::High > RecommendationPriority::Medium);
+        assert!(RecommendationPriority::Medium > RecommendationPriority::Low);
+    }
+
+    #[test]
+    fn test_effort_level_ordering() {
+        assert!(EffortLevel::VeryHigh > EffortLevel::High);
+        assert!(EffortLevel::High > EffortLevel::Medium);
+        assert!(EffortLevel::Medium > EffortLevel::Low);
+        assert!(EffortLevel::Low > EffortLevel::Minimal);
+    }
+
+    #[test]
+    fn test_report_type_serialization() {
+        let report_type = ReportType::Summary;
+        let serialized = serde_json::to_string(&report_type).unwrap();
+        assert!(serialized.contains("Summary"));
+
+        let custom_type = ReportType::Custom("MyCustomReport".to_string());
+        let serialized = serde_json::to_string(&custom_type).unwrap();
+        assert!(serialized.contains("MyCustomReport"));
+    }
+
+    #[test]
+    fn test_report_format_serialization() {
+        let formats = vec![
+            ReportFormat::Html,
+            ReportFormat::Json,
+            ReportFormat::Csv,
+            ReportFormat::Markdown,
+            ReportFormat::Pdf,
+        ];
+
+        for format in formats {
+            let serialized = serde_json::to_string(&format).unwrap();
+            let deserialized: ReportFormat = serde_json::from_str(&serialized).unwrap();
+            assert_eq!(format, deserialized);
+        }
+    }
+
+    #[test]
+    fn test_mapping_summary_calculation() {
+        let generator = MappingReportGenerator::new();
+
+        // Create mock mapping results
+        let mapping_results = vec![
+            crate::mapping::engine::MappingResult {
+                source_column: "Asset ID".to_string(),
+                target_field: "uuid".to_string(),
+                confidence: 0.95,
+                exact_match: true,
+            },
+            crate::mapping::engine::MappingResult {
+                source_column: "Asset Name".to_string(),
+                target_field: "title".to_string(),
+                confidence: 0.85,
+                exact_match: false,
+            },
+            crate::mapping::engine::MappingResult {
+                source_column: "Unknown Column".to_string(),
+                target_field: "".to_string(), // Unmapped
+                confidence: 0.2,
+                exact_match: false,
+            },
+        ];
+
+        let confidence_results = vec![
+            MappingConfidence {
+                overall_score: 0.95,
+                factor_scores: HashMap::new(),
+                threshold_status: ThresholdStatus::HighConfidence,
+                recommendations: Vec::new(),
+                risk_factors: Vec::new(),
+                explanation: ConfidenceExplanation {
+                    source_column: "Asset ID".to_string(),
+                    target_field: "uuid".to_string(),
+                    factor_contributions: HashMap::new(),
+                    weighted_calculation: WeightedConfidenceCalculation {
+                        total_weighted_score: 0.95,
+                        total_weight: 1.0,
+                        base_score: 0.95,
+                        final_score: 0.95,
+                    },
+                    adjustments: Vec::new(),
+                },
+                calculation_time: Duration::from_millis(1),
+            },
+            MappingConfidence {
+                overall_score: 0.85,
+                factor_scores: HashMap::new(),
+                threshold_status: ThresholdStatus::MediumConfidence,
+                recommendations: Vec::new(),
+                risk_factors: Vec::new(),
+                explanation: ConfidenceExplanation {
+                    source_column: "Asset Name".to_string(),
+                    target_field: "title".to_string(),
+                    factor_contributions: HashMap::new(),
+                    weighted_calculation: WeightedConfidenceCalculation {
+                        total_weighted_score: 0.85,
+                        total_weight: 1.0,
+                        base_score: 0.85,
+                        final_score: 0.85,
+                    },
+                    adjustments: Vec::new(),
+                },
+                calculation_time: Duration::from_millis(1),
+            },
+            MappingConfidence {
+                overall_score: 0.2,
+                factor_scores: HashMap::new(),
+                threshold_status: ThresholdStatus::VeryLowConfidence,
+                recommendations: Vec::new(),
+                risk_factors: Vec::new(),
+                explanation: ConfidenceExplanation {
+                    source_column: "Unknown Column".to_string(),
+                    target_field: "".to_string(),
+                    factor_contributions: HashMap::new(),
+                    weighted_calculation: WeightedConfidenceCalculation {
+                        total_weighted_score: 0.2,
+                        total_weight: 1.0,
+                        base_score: 0.2,
+                        final_score: 0.2,
+                    },
+                    adjustments: Vec::new(),
+                },
+                calculation_time: Duration::from_millis(1),
+            },
+        ];
+
+        let summary = generator.generate_mapping_summary(&mapping_results, &confidence_results).unwrap();
+
+        assert_eq!(summary.total_fields, 3);
+        assert_eq!(summary.mapped_fields, 2); // Only first two have target fields
+        assert!((summary.average_confidence - 0.6667).abs() < 0.01); // (0.95 + 0.85 + 0.2) / 3
+        assert_eq!(summary.high_confidence_mappings, 1); // Only first one > 0.9
+        assert_eq!(summary.low_confidence_mappings, 1);  // Only third one < 0.5
+    }
+
+    #[test]
+    fn test_quality_metrics_calculation() {
+        let generator = MappingReportGenerator::new();
+
+        let detailed_results = vec![
+            FieldMappingResult {
+                field_id: "field_1".to_string(),
+                target_field: "uuid".to_string(),
+                source_column: Some("Asset ID".to_string()),
+                confidence_score: 0.95,
+                mapping_successful: true,
+                required: true,
+                validation_result: None,
+                override_applied: None,
+                alternatives: Vec::new(),
+                issues: Vec::new(),
+                data_quality: None,
+            },
+            FieldMappingResult {
+                field_id: "field_2".to_string(),
+                target_field: "title".to_string(),
+                source_column: Some("Asset Name".to_string()),
+                confidence_score: 0.85,
+                mapping_successful: true,
+                required: false,
+                validation_result: None,
+                override_applied: None,
+                alternatives: Vec::new(),
+                issues: vec![
+                    MappingIssue {
+                        severity: IssueSeverity::Warning,
+                        category: IssueCategory::LowConfidence,
+                        description: "Medium confidence mapping".to_string(),
+                        suggested_resolution: None,
+                        impact: "May affect accuracy".to_string(),
+                    }
+                ],
+                data_quality: None,
+            },
+        ];
+
+        let mapping_summary = MappingSummary {
+            total_fields: 2,
+            mapped_fields: 2,
+            required_fields_mapped: 1,
+            required_fields_missing: 0,
+            optional_fields_mapped: 1,
+            average_confidence: 0.9,
+            min_confidence: 0.85,
+            max_confidence: 0.95,
+            high_confidence_mappings: 1,
+            low_confidence_mappings: 0,
+            processing_time: Duration::from_millis(100),
+            success_rate: 1.0,
+        };
+
+        let quality_metrics = generator.calculate_quality_metrics(&detailed_results, &mapping_summary).unwrap();
+
+        assert_eq!(quality_metrics.completeness_score, 1.0); // All fields mapped
+        assert_eq!(quality_metrics.accuracy_score, 0.9);     // From mapping summary
+        assert_eq!(quality_metrics.quality_grade, QualityGrade::A); // High overall score
+        assert_eq!(quality_metrics.warnings, 1);            // One warning in issues
+        assert_eq!(quality_metrics.critical_issues, 0);     // No critical issues
+    }
+
+    #[test]
+    fn test_csv_export() {
+        let generator = MappingReportGenerator::new();
+
+        let report = MappingReport {
+            report_id: Uuid::new_v4(),
+            report_type: ReportType::Summary,
+            generated_at: chrono::Utc::now(),
+            document_info: DocumentInfo {
+                file_name: "test.csv".to_string(),
+                document_type: "inventory".to_string(),
+                file_size: 1024,
+                total_rows: 10,
+                total_columns: 5,
+                processed_at: chrono::Utc::now(),
+                processing_duration: Duration::from_millis(100),
+                document_hash: "test_hash".to_string(),
+            },
+            mapping_summary: MappingSummary {
+                total_fields: 2,
+                mapped_fields: 2,
+                required_fields_mapped: 1,
+                required_fields_missing: 0,
+                optional_fields_mapped: 1,
+                average_confidence: 0.9,
+                min_confidence: 0.85,
+                max_confidence: 0.95,
+                high_confidence_mappings: 1,
+                low_confidence_mappings: 0,
+                processing_time: Duration::from_millis(100),
+                success_rate: 1.0,
+            },
+            detailed_results: vec![
+                FieldMappingResult {
+                    field_id: "field_1".to_string(),
+                    target_field: "uuid".to_string(),
+                    source_column: Some("Asset ID".to_string()),
+                    confidence_score: 0.95,
+                    mapping_successful: true,
+                    required: true,
+                    validation_result: None,
+                    override_applied: None,
+                    alternatives: Vec::new(),
+                    issues: Vec::new(),
+                    data_quality: None,
+                },
+            ],
+            quality_metrics: QualityMetrics {
+                completeness_score: 1.0,
+                accuracy_score: 0.9,
+                consistency_score: 0.85,
+                overall_quality_score: 0.9,
+                risk_level: RiskLevel::Low,
+                quality_grade: QualityGrade::A,
+                compliance_percentage: 90.0,
+                critical_issues: 0,
+                warnings: 0,
+            },
+            recommendations: Vec::new(),
+            validation_results: ValidationSummary {
+                total_validations: 1,
+                validations_passed: 1,
+                validations_failed: 0,
+                validation_warnings: 0,
+                success_rate: 1.0,
+                common_failures: Vec::new(),
+                performance_metrics: ValidationPerformanceMetrics {
+                    avg_validation_time_us: 100.0,
+                    total_validation_time: Duration::from_millis(1),
+                    slowest_validations: Vec::new(),
+                },
+            },
+            override_results: OverrideSummary {
+                total_overrides_evaluated: 0,
+                overrides_applied: 0,
+                conflicts_detected: 0,
+                application_success_rate: 0.0,
+                frequently_applied: Vec::new(),
+                performance_metrics: OverridePerformanceMetrics {
+                    avg_resolution_time_us: 0.0,
+                    cache_hit_rate: 0.0,
+                    total_processing_time: Duration::from_millis(0),
+                },
+            },
+            performance_metrics: ProcessingMetrics {
+                total_processing_time: Duration::from_millis(100),
+                column_detection_time: Duration::from_millis(20),
+                mapping_time: Duration::from_millis(30),
+                validation_time: Duration::from_millis(25),
+                override_time: Duration::from_millis(5),
+                memory_usage: MemoryUsageMetrics {
+                    peak_memory_bytes: 1024,
+                    avg_memory_bytes: 512,
+                    efficiency_score: 0.8,
+                },
+                throughput: ThroughputMetrics {
+                    rows_per_second: 100.0,
+                    fields_per_second: 500.0,
+                    bytes_per_second: 10240.0,
+                },
+            },
+            trend_analysis: None,
+        };
+
+        let csv_output = generator.export_to_csv(&report).unwrap();
+
+        assert!(csv_output.contains("Field ID,Target Field,Source Column"));
+        assert!(csv_output.contains("field_1,uuid,Asset ID"));
+        assert!(csv_output.contains("0.950"));
+        assert!(csv_output.contains("true"));
+    }
+
+    #[test]
+    fn test_markdown_export() {
+        let generator = MappingReportGenerator::new();
+
+        let report = MappingReport {
+            report_id: Uuid::new_v4(),
+            report_type: ReportType::Summary,
+            generated_at: chrono::Utc::now(),
+            document_info: DocumentInfo {
+                file_name: "test.csv".to_string(),
+                document_type: "inventory".to_string(),
+                file_size: 1024,
+                total_rows: 10,
+                total_columns: 5,
+                processed_at: chrono::Utc::now(),
+                processing_duration: Duration::from_millis(100),
+                document_hash: "test_hash".to_string(),
+            },
+            mapping_summary: MappingSummary {
+                total_fields: 2,
+                mapped_fields: 2,
+                required_fields_mapped: 1,
+                required_fields_missing: 0,
+                optional_fields_mapped: 1,
+                average_confidence: 0.9,
+                min_confidence: 0.85,
+                max_confidence: 0.95,
+                high_confidence_mappings: 1,
+                low_confidence_mappings: 0,
+                processing_time: Duration::from_millis(100),
+                success_rate: 1.0,
+            },
+            detailed_results: Vec::new(),
+            quality_metrics: QualityMetrics {
+                completeness_score: 1.0,
+                accuracy_score: 0.9,
+                consistency_score: 0.85,
+                overall_quality_score: 0.9,
+                risk_level: RiskLevel::Low,
+                quality_grade: QualityGrade::A,
+                compliance_percentage: 90.0,
+                critical_issues: 0,
+                warnings: 0,
+            },
+            recommendations: vec![
+                Recommendation {
+                    priority: RecommendationPriority::Medium,
+                    category: RecommendationCategory::DataQuality,
+                    title: "Test Recommendation".to_string(),
+                    description: "This is a test recommendation".to_string(),
+                    suggested_action: "Take this action".to_string(),
+                    impact_assessment: "This will improve quality".to_string(),
+                    effort_level: EffortLevel::Low,
+                    related_fields: Vec::new(),
+                }
+            ],
+            validation_results: ValidationSummary {
+                total_validations: 1,
+                validations_passed: 1,
+                validations_failed: 0,
+                validation_warnings: 0,
+                success_rate: 1.0,
+                common_failures: Vec::new(),
+                performance_metrics: ValidationPerformanceMetrics {
+                    avg_validation_time_us: 100.0,
+                    total_validation_time: Duration::from_millis(1),
+                    slowest_validations: Vec::new(),
+                },
+            },
+            override_results: OverrideSummary {
+                total_overrides_evaluated: 0,
+                overrides_applied: 0,
+                conflicts_detected: 0,
+                application_success_rate: 0.0,
+                frequently_applied: Vec::new(),
+                performance_metrics: OverridePerformanceMetrics {
+                    avg_resolution_time_us: 0.0,
+                    cache_hit_rate: 0.0,
+                    total_processing_time: Duration::from_millis(0),
+                },
+            },
+            performance_metrics: ProcessingMetrics {
+                total_processing_time: Duration::from_millis(100),
+                column_detection_time: Duration::from_millis(20),
+                mapping_time: Duration::from_millis(30),
+                validation_time: Duration::from_millis(25),
+                override_time: Duration::from_millis(5),
+                memory_usage: MemoryUsageMetrics {
+                    peak_memory_bytes: 1024,
+                    avg_memory_bytes: 512,
+                    efficiency_score: 0.8,
+                },
+                throughput: ThroughputMetrics {
+                    rows_per_second: 100.0,
+                    fields_per_second: 500.0,
+                    bytes_per_second: 10240.0,
+                },
+            },
+            trend_analysis: None,
+        };
+
+        let md_output = generator.export_to_markdown(&report).unwrap();
+
+        assert!(md_output.contains("# Mapping Validation Report"));
+        assert!(md_output.contains("## Summary"));
+        assert!(md_output.contains("## Recommendations"));
+        assert!(md_output.contains("Test Recommendation"));
+        assert!(md_output.contains("test.csv"));
+        assert!(md_output.contains("100.0%")); // Success rate
     }
 }

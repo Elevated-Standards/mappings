@@ -9,6 +9,7 @@ pub mod excel;
 pub mod word;
 pub mod markdown;
 pub mod mapping;
+pub mod fuzzy;
 pub mod validation;
 pub mod oscal;
 pub mod error;

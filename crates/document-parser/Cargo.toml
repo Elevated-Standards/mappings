@@ -29,6 +29,10 @@ docx-rs.workspace = true
 pulldown-cmark.workspace = true
 validator.workspace = true
 regex.workspace = true
+notify.workspace = true
+strsim.workspace = true
+unicode-normalization.workspace = true
+lru.workspace = true
 futures = "0.3"
 
 [dev-dependencies]

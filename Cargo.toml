@@ -62,6 +62,12 @@ calamine = "0.22"
 docx-rs = "0.4"
 pulldown-cmark = "0.9"
 regex = "1.10"
+notify = "6.1"
+
+# Fuzzy string matching
+strsim = "0.11"
+unicode-normalization = "0.1"
+lru = "0.12"
 
 # Validation and schema
 jsonschema = "0.17"

@@ -1,0 +1,25 @@
+# Modified: 2025-01-20
+
+[build]
+rustflags = ["-D", "warnings"]
+
+[target.x86_64-unknown-linux-gnu]
+linker = "clang"
+rustflags = ["-C", "link-arg=-fuse-ld=lld"]
+
+[alias]
+# Development aliases
+dev = "run --bin fedramp-api"
+cli = "run --bin fedramp"
+test-all = "test --workspace"
+check-all = "check --workspace"
+clippy-all = "clippy --workspace --all-targets --all-features"
+fmt-all = "fmt --all"
+
+# Build aliases
+build-release = "build --release --workspace"
+build-api = "build --release --bin fedramp-api"
+build-cli = "build --release --bin fedramp"
+
+# Docker build
+docker-build = "build --release --target x86_64-unknown-linux-gnu"

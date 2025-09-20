@@ -1,0 +1,23 @@
+# Modified: 2025-01-20
+
+# Development configuration overrides
+
+[server]
+port = 8080
+
+[database]
+url = "postgres://fedramp:fedramp_dev_password@localhost:5432/fedramp_compliance"
+
+[logging]
+level = "debug"
+format = "pretty"
+
+[security]
+cors_origins = ["*"]
+csrf_protection = false
+
+[document_processing]
+temp_dir = "./tmp"
+
+[audit]
+detailed_logging = true

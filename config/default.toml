@@ -1,0 +1,74 @@
+# Modified: 2025-01-20
+
+# Default configuration for FedRAMP Compliance Automation Platform
+
+[server]
+host = "0.0.0.0"
+port = 8080
+max_upload_size = 104857600  # 100MB
+request_timeout = 30
+workers = 4
+
+[database]
+url = "postgres://fedramp:password@localhost:5432/fedramp_compliance"
+max_connections = 10
+min_connections = 1
+connect_timeout = 30
+idle_timeout = 600
+
+[redis]
+url = "redis://localhost:6379"
+pool_size = 10
+timeout = 5
+
+[auth]
+jwt_secret = "your-secret-key-change-in-production"
+jwt_expiration = 3600  # 1 hour
+refresh_expiration = 604800  # 7 days
+bcrypt_cost = 12
+
+[logging]
+level = "info"
+format = "json"
+file = "logs/fedramp.log"
+max_size = "100MB"
+max_files = 10
+
+[document_processing]
+max_file_size = 104857600  # 100MB
+supported_formats = ["xlsx", "xls", "docx", "md", "json"]
+temp_dir = "/tmp/fedramp"
+batch_size = 100
+timeout = 300
+
+[oscal]
+version = "1.1.2"
+validate_output = true
+schema_cache_ttl = 3600
+
+[frameworks]
+nist_800_53_catalog_url = "https://raw.githubusercontent.com/usnistgov/oscal-content/master/nist.gov/SP800-53/rev5/json/NIST_SP-800-53_rev5_catalog.json"
+nist_800_171_catalog_url = "https://raw.githubusercontent.com/usnistgov/oscal-content/master/nist.gov/SP800-171/rev2/json/NIST_SP-800-171_rev2_catalog.json"
+cache_ttl = 86400  # 24 hours
+
+[compliance]
+default_baseline = "moderate"
+gap_analysis_timeout = 120
+report_generation_timeout = 300
+
+[security]
+cors_origins = ["http://localhost:3000", "http://localhost:8080"]
+rate_limit_requests = 100
+rate_limit_window = 60  # seconds
+csrf_protection = true
+
+[monitoring]
+metrics_enabled = true
+health_check_interval = 30
+performance_monitoring = true
+
+[audit]
+enabled = true
+retention_days = 2555  # 7 years
+compress_after_days = 90
+detailed_logging = true

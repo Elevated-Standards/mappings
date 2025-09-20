@@ -1,0 +1,110 @@
+# Modified: 2025-01-20
+
+[workspace]
+members = [
+    "crates/fedramp-core",
+    "crates/document-parser",
+    "crates/compliance-dashboard", 
+    "crates/gap-analysis",
+    "crates/control-mapping",
+    "crates/risk-assessment",
+    "crates/poam-management",
+    "crates/ssp-generator",
+    "crates/compliance-reporting",
+    "crates/inheritance-tracker",
+    "crates/cicd-pipeline",
+    "crates/framework-converter",
+    "crates/audit-trail",
+    "crates/fedramp-api",
+    "crates/fedramp-cli",
+    "crates/fedramp-web"
+]
+
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["FedRAMP Compliance Team"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/Elevated-Standards/mappings"
+homepage = "https://github.com/Elevated-Standards/mappings"
+documentation = "https://docs.rs/fedramp-compliance"
+keywords = ["fedramp", "compliance", "oscal", "security", "nist"]
+categories = ["web-programming", "command-line-utilities", "development-tools"]
+rust-version = "1.70"
+
+[workspace.dependencies]
+# Core dependencies
+tokio = { version = "1.35", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+uuid = { version = "1.6", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+anyhow = "1.0"
+thiserror = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Database
+sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "json"] }
+sea-orm = { version = "0.12", features = ["sqlx-postgres", "runtime-tokio-rustls", "macros"] }
+
+# Web framework
+axum = { version = "0.7", features = ["macros", "multipart"] }
+tower = { version = "0.4", features = ["full"] }
+tower-http = { version = "0.5", features = ["cors", "trace", "fs"] }
+
+# Document processing
+calamine = "0.22"
+docx-rs = "0.4"
+pulldown-cmark = "0.9"
+regex = "1.10"
+
+# Validation and schema
+jsonschema = "0.17"
+validator = { version = "0.16", features = ["derive"] }
+schemars = { version = "0.8", features = ["uuid1", "chrono"] }
+
+# Configuration
+config = "0.13"
+clap = { version = "4.4", features = ["derive"] }
+
+# Security
+argon2 = "0.5"
+jsonwebtoken = "9.2"
+
+# Testing
+mockall = "0.12"
+wiremock = "0.5"
+
+# Internal crates
+fedramp-core = { path = "crates/fedramp-core" }
+document-parser = { path = "crates/document-parser" }
+compliance-dashboard = { path = "crates/compliance-dashboard" }
+gap-analysis = { path = "crates/gap-analysis" }
+control-mapping = { path = "crates/control-mapping" }
+risk-assessment = { path = "crates/risk-assessment" }
+poam-management = { path = "crates/poam-management" }
+ssp-generator = { path = "crates/ssp-generator" }
+compliance-reporting = { path = "crates/compliance-reporting" }
+inheritance-tracker = { path = "crates/inheritance-tracker" }
+cicd-pipeline = { path = "crates/cicd-pipeline" }
+framework-converter = { path = "crates/framework-converter" }
+audit-trail = { path = "crates/audit-trail" }
+fedramp-api = { path = "crates/fedramp-api" }
+fedramp-cli = { path = "crates/fedramp-cli" }
+fedramp-web = { path = "crates/fedramp-web" }
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[profile.dev]
+debug = true
+opt-level = 0
+
+[profile.test]
+opt-level = 1

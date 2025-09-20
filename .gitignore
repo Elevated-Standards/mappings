@@ -1,0 +1,100 @@
+# Modified: 2025-01-20
+
+# Rust
+/target/
+**/*.rs.bk
+*.pdb
+Cargo.lock
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Build artifacts
+dist/
+build/
+
+# Documentation
+/target/doc/
+
+# Test artifacts
+/target/debug/
+/target/release/
+
+# Coverage reports
+tarpaulin-report.html
+cobertura.xml
+lcov.info
+
+# Backup files
+*.bak
+*.backup
+
+# Local configuration
+config/local.toml
+config/secrets.toml
+
+# Docker
+.dockerignore
+
+# Node.js (for web frontend)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Python (for scripts)
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+
+# Generated files
+*.generated.*
+*_generated.*
+
+# Security
+*.key
+*.pem
+*.crt
+*.p12
+*.pfx
+
+# Local development
+.local/
+.cache/

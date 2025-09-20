@@ -1,0 +1,70 @@
+# Modified: 2025-01-20
+
+[package]
+name = "fedramp-api"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+documentation.workspace = true
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
+description = "REST API server for FedRAMP compliance automation platform"
+
+[dependencies]
+# Internal crates
+fedramp-core.workspace = true
+document-parser.workspace = true
+compliance-dashboard.workspace = true
+gap-analysis.workspace = true
+control-mapping.workspace = true
+risk-assessment.workspace = true
+poam-management.workspace = true
+ssp-generator.workspace = true
+compliance-reporting.workspace = true
+inheritance-tracker.workspace = true
+cicd-pipeline.workspace = true
+framework-converter.workspace = true
+audit-trail.workspace = true
+
+# Core dependencies
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+config.workspace = true
+
+# Web framework
+axum.workspace = true
+tower.workspace = true
+tower-http.workspace = true
+
+# Database
+sqlx.workspace = true
+sea-orm.workspace = true
+
+# Security
+argon2.workspace = true
+jsonwebtoken.workspace = true
+
+# Validation
+validator.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
+wiremock.workspace = true
+
+[[bin]]
+name = "fedramp-api"
+path = "src/main.rs"
+
+[features]
+default = []
+test-utils = []

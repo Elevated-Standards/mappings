@@ -1,0 +1,56 @@
+# Modified: 2025-01-20
+
+# Multi-stage build for FedRAMP API
+FROM rust:1.70-slim as builder
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    pkg-config \
+    libssl-dev \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create app directory
+WORKDIR /app
+
+# Copy manifests
+COPY Cargo.toml Cargo.lock ./
+COPY crates/ ./crates/
+
+# Build dependencies (this is cached if Cargo.toml doesn't change)
+RUN cargo build --release --bin fedramp-api
+
+# Runtime stage
+FROM debian:bookworm-slim
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    libssl3 \
+    libpq5 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create app user
+RUN useradd -r -s /bin/false fedramp
+
+# Copy binary from builder stage
+COPY --from=builder /app/target/release/fedramp-api /usr/local/bin/fedramp-api
+
+# Copy configuration
+COPY config/ /app/config/
+
+# Set ownership
+RUN chown -R fedramp:fedramp /app
+
+# Switch to app user
+USER fedramp
+
+# Expose port
+EXPOSE 8080
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8080/health || exit 1
+
+# Run the application
+CMD ["fedramp-api"]

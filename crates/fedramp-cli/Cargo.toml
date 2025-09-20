@@ -1,0 +1,57 @@
+# Modified: 2025-01-20
+
+[package]
+name = "fedramp-cli"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+documentation.workspace = true
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
+description = "Command-line interface for FedRAMP compliance automation"
+
+[dependencies]
+# Internal crates
+fedramp-core.workspace = true
+document-parser.workspace = true
+gap-analysis.workspace = true
+control-mapping.workspace = true
+risk-assessment.workspace = true
+ssp-generator.workspace = true
+compliance-reporting.workspace = true
+framework-converter.workspace = true
+
+# Core dependencies
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+# CLI framework
+clap.workspace = true
+
+# File handling
+walkdir = "2.4"
+indicatif = "0.17"
+console = "0.15"
+
+# Configuration
+config.workspace = true
+
+[dev-dependencies]
+tempfile = "3.8"
+assert_cmd = "2.0"
+
+[[bin]]
+name = "fedramp"
+path = "src/main.rs"
+
+[features]
+default = []
+test-utils = []

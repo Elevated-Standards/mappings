@@ -1,11 +1,11 @@
-# Modified: 2025-01-20
+// Modified: 2025-01-20
 
 //! Validation utilities for FedRAMP compliance data.
 //!
 //! This module provides validation functions and utilities for ensuring
 //! data integrity and compliance with FedRAMP requirements.
 
-use crate::error::FedRampError;
+use crate::error::Error;
 use crate::types::Result;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -57,9 +57,7 @@ impl ValidationContext {
 /// Validate a struct using the validator crate
 pub fn validate_struct<T: Validate>(data: &T) -> Result<()> {
     data.validate()
-        .map_err(|e| FedRampError::Validation {
-            message: format_validation_errors(&e),
-        })
+        .map_err(|e| Error::validation(format_validation_errors(&e)))
 }
 
 /// Format validation errors into a human-readable string
@@ -82,13 +80,11 @@ pub fn format_validation_errors(errors: &ValidationErrors) -> String {
 /// Validate OSCAL version compatibility
 pub fn validate_oscal_version(version: &str) -> Result<()> {
     if version != crate::types::OSCAL_VERSION {
-        return Err(FedRampError::Validation {
-            message: format!(
-                "Unsupported OSCAL version '{}'. Expected '{}'",
-                version,
-                crate::types::OSCAL_VERSION
-            ),
-        });
+        return Err(Error::validation(format!(
+            "Unsupported OSCAL version '{}'. Expected '{}'",
+            version,
+            crate::types::OSCAL_VERSION
+        )));
     }
     Ok(())
 }
@@ -96,30 +92,24 @@ pub fn validate_oscal_version(version: &str) -> Result<()> {
 /// Validate FedRAMP template version
 pub fn validate_fedramp_template_version(version: &str) -> Result<()> {
     if version != crate::types::FEDRAMP_TEMPLATE_VERSION {
-        return Err(FedRampError::Validation {
-            message: format!(
-                "Unsupported FedRAMP template version '{}'. Expected '{}'",
-                version,
-                crate::types::FEDRAMP_TEMPLATE_VERSION
-            ),
-        });
+        return Err(Error::validation(format!(
+            "Unsupported FedRAMP template version '{}'. Expected '{}'",
+            version,
+            crate::types::FEDRAMP_TEMPLATE_VERSION
+        )));
     }
     Ok(())
 }
 
 /// Validate UUID format
 pub fn validate_uuid(uuid_str: &str) -> Result<uuid::Uuid> {
-    uuid::Uuid::parse_str(uuid_str).map_err(|e| FedRampError::Validation {
-        message: format!("Invalid UUID format '{}': {}", uuid_str, e),
-    })
+    uuid::Uuid::parse_str(uuid_str).map_err(|e| Error::validation(format!("Invalid UUID format '{}': {}", uuid_str, e)))
 }
 
 /// Validate email format
 pub fn validate_email(email: &str) -> Result<()> {
     if !email.contains('@') || !email.contains('.') {
-        return Err(FedRampError::Validation {
-            message: format!("Invalid email format: {}", email),
-        });
+        return Err(Error::validation(format!("Invalid email format: {}", email)));
     }
     Ok(())
 }
@@ -127,16 +117,14 @@ pub fn validate_email(email: &str) -> Result<()> {
 /// Validate URL format
 pub fn validate_url(url: &str) -> Result<()> {
     if !url.starts_with("http://") && !url.starts_with("https://") {
-        return Err(FedRampError::Validation {
-            message: format!("Invalid URL format: {}", url),
-        });
+        return Err(Error::validation(format!("Invalid URL format: {}", url)));
     }
     Ok(())
 }
 
 /// Custom validation error for FedRAMP-specific rules
 pub fn fedramp_validation_error(message: &str) -> ValidationError {
-    ValidationError::new("fedramp_compliance").with_message(message.into())
+    ValidationError::new("fedramp_compliance")
 }
 
 #[cfg(test)]

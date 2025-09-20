@@ -1,11 +1,11 @@
-# Modified: 2025-01-20
+// Modified: 2025-01-20
 
 //! Configuration management for FedRAMP compliance automation.
 //!
 //! This module provides configuration structures and utilities for
 //! managing platform settings and environment-specific configurations.
 
-use crate::error::FedRampError;
+use crate::error::Error;
 use crate::types::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -184,45 +184,32 @@ impl FedRampConfig {
 
     /// Load configuration from a TOML file
     pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
-        let content = std::fs::read_to_string(path).map_err(|e| FedRampError::Io {
-            message: format!("Failed to read config file: {}", e),
-            source: e,
-        })?;
+        let content = std::fs::read_to_string(path).map_err(|e| Error::configuration(format!("Failed to read config file: {}", e)))?;
 
-        toml::from_str(&content).map_err(|e| FedRampError::Config {
-            message: format!("Failed to parse config file: {}", e),
-        })
+        serde_json::from_str(&content).map_err(|e| Error::configuration(format!("Failed to parse config file: {}", e)))
     }
 
     /// Validate the configuration
     pub fn validate(&self) -> Result<()> {
         // Validate database URL
         if self.database.url.is_empty() {
-            return Err(FedRampError::Config {
-                message: "Database URL cannot be empty".to_string(),
-            });
+            return Err(Error::configuration("Database URL cannot be empty"));
         }
 
         // Validate server port
         if self.server.port == 0 {
-            return Err(FedRampError::Config {
-                message: "Server port must be greater than 0".to_string(),
-            });
+            return Err(Error::configuration("Server port must be greater than 0"));
         }
 
         // Validate JWT secret
         if self.security.jwt_secret.is_empty() {
-            return Err(FedRampError::Config {
-                message: "JWT secret cannot be empty".to_string(),
-            });
+            return Err(Error::configuration("JWT secret cannot be empty"));
         }
 
         // Validate log level
         let valid_levels = ["trace", "debug", "info", "warn", "error"];
         if !valid_levels.contains(&self.logging.level.as_str()) {
-            return Err(FedRampError::Config {
-                message: format!("Invalid log level: {}", self.logging.level),
-            });
+            return Err(Error::configuration(format!("Invalid log level: {}", self.logging.level)));
         }
 
         Ok(())
@@ -249,9 +236,7 @@ impl FedRampConfig {
                 config.security.rate_limiting = false;
             }
             _ => {
-                return Err(FedRampError::Config {
-                    message: format!("Unknown environment: {}", env),
-                });
+                return Err(Error::configuration(format!("Unknown environment: {}", env)));
             }
         }
 

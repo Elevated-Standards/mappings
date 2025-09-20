@@ -49,8 +49,8 @@ async-trait = "0.1"
 futures = "0.3"
 
 # Database
-sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "json"] }
-sea-orm = { version = "0.12", features = ["sqlx-postgres", "runtime-tokio-rustls", "macros"] }
+sqlx = { version = "0.6", features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "json"] }
+sea-orm = { version = "0.11", features = ["sqlx-postgres", "runtime-tokio-rustls", "macros"] }
 
 # Web framework
 axum = { version = "0.7", features = ["macros", "multipart"] }
@@ -74,9 +74,8 @@ clap = { version = "4.4", features = ["derive"] }
 toml = "0.8"
 
 # Security
-argon2 = "0.5"
-jsonwebtoken = "9.2"
-sha2 = "0.10"
+argon2 = "0.4"
+jsonwebtoken = "8.3"
 
 # Testing
 mockall = "0.12"

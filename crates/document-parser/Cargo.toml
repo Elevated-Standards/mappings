@@ -10,7 +10,7 @@ repository.workspace = true
 documentation.workspace = true
 keywords.workspace = true
 categories.workspace = true
-rust-version.workspace = true
+rust-version = "1.82"
 description = "Document parsing and OSCAL conversion for FedRAMP compliance"
 
 [dependencies]

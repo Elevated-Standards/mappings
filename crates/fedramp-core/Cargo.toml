@@ -10,7 +10,7 @@ repository.workspace = true
 documentation.workspace = true
 keywords.workspace = true
 categories.workspace = true
-rust-version.workspace = true
+rust-version = "1.82"
 description = "Core data models and utilities for FedRAMP compliance automation"
 
 [dependencies]

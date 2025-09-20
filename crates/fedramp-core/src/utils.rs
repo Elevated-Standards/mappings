@@ -1,11 +1,11 @@
-# Modified: 2025-01-20
+// Modified: 2025-01-20
 
 //! Utility functions for FedRAMP compliance automation.
 //!
 //! This module provides common utility functions used throughout
 //! the FedRAMP compliance automation platform.
 
-use crate::error::FedRampError;
+use crate::error::Error;
 use crate::types::{Result, Timestamp};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -30,9 +30,7 @@ pub fn format_timestamp(timestamp: &Timestamp) -> String {
 pub fn parse_timestamp(timestamp_str: &str) -> Result<Timestamp> {
     chrono::DateTime::parse_from_rfc3339(timestamp_str)
         .map(|dt| dt.with_timezone(&chrono::Utc))
-        .map_err(|e| FedRampError::Validation {
-            message: format!("Invalid timestamp format '{}': {}", timestamp_str, e),
-        })
+        .map_err(|e| Error::validation(format!("Invalid timestamp format '{}': {}", timestamp_str, e)))
 }
 
 /// Sanitize string for use in file names
@@ -79,8 +77,8 @@ pub fn to_snake_case(input: &str) -> String {
 
 /// Merge two JSON values recursively
 pub fn merge_json(base: &mut Value, overlay: &Value) {
-    match (base, overlay) {
-        (Value::Object(base_map), Value::Object(overlay_map)) => {
+    match (base.as_object_mut(), overlay.as_object()) {
+        (Some(base_map), Some(overlay_map)) => {
             for (key, value) in overlay_map {
                 match base_map.get_mut(key) {
                     Some(base_value) => merge_json(base_value, value),
@@ -100,7 +98,7 @@ pub fn deep_clone_json(value: &Value) -> Value {
 }
 
 /// Extract nested value from JSON using dot notation
-pub fn get_nested_value(value: &Value, path: &str) -> Option<&Value> {
+pub fn get_nested_value<'a>(value: &'a Value, path: &str) -> Option<&'a Value> {
     let parts: Vec<&str> = path.split('.').collect();
     let mut current = value;
 
@@ -124,9 +122,7 @@ pub fn get_nested_value(value: &Value, path: &str) -> Option<&Value> {
 pub fn set_nested_value(value: &mut Value, path: &str, new_value: Value) -> Result<()> {
     let parts: Vec<&str> = path.split('.').collect();
     if parts.is_empty() {
-        return Err(FedRampError::Validation {
-            message: "Empty path provided".to_string(),
-        });
+        return Err(Error::validation("Empty path provided"));
     }
 
     let mut current = value;
@@ -139,9 +135,7 @@ pub fn set_nested_value(value: &mut Value, path: &str, new_value: Value) -> Resu
                     return Ok(());
                 }
                 _ => {
-                    return Err(FedRampError::Validation {
-                        message: format!("Cannot set property '{}' on non-object", part),
-                    });
+                    return Err(Error::validation(format!("Cannot set property '{}' on non-object", part)));
                 }
             }
         } else {
@@ -153,9 +147,7 @@ pub fn set_nested_value(value: &mut Value, path: &str, new_value: Value) -> Resu
                         .or_insert_with(|| Value::Object(serde_json::Map::new()));
                 }
                 _ => {
-                    return Err(FedRampError::Validation {
-                        message: format!("Cannot navigate through non-object at '{}'", part),
-                    });
+                    return Err(Error::validation(format!("Cannot navigate through non-object at '{}'", part)));
                 }
             }
         }
@@ -164,32 +156,28 @@ pub fn set_nested_value(value: &mut Value, path: &str, new_value: Value) -> Resu
     Ok(())
 }
 
-/// Calculate file hash (SHA-256)
+/// Calculate file hash (simple hash for now)
 pub fn calculate_file_hash<P: AsRef<Path>>(path: P) -> Result<String> {
     use std::io::Read;
-    
-    let mut file = std::fs::File::open(path).map_err(|e| FedRampError::Io {
-        message: "Failed to open file for hashing".to_string(),
-        source: e,
-    })?;
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
 
-    let mut hasher = sha2::Sha256::new();
+    let mut file = std::fs::File::open(path).map_err(|e| Error::internal(format!("Failed to open file for hashing: {}", e)))?;
+
+    let mut hasher = DefaultHasher::new();
     let mut buffer = [0; 8192];
 
     loop {
-        let bytes_read = file.read(&mut buffer).map_err(|e| FedRampError::Io {
-            message: "Failed to read file for hashing".to_string(),
-            source: e,
-        })?;
+        let bytes_read = file.read(&mut buffer).map_err(|e| Error::internal(format!("Failed to read file for hashing: {}", e)))?;
 
         if bytes_read == 0 {
             break;
         }
 
-        hasher.update(&buffer[..bytes_read]);
+        buffer[..bytes_read].hash(&mut hasher);
     }
 
-    Ok(format!("{:x}", hasher.finalize()))
+    Ok(format!("{:x}", hasher.finish()))
 }
 
 /// Validate and normalize email address
@@ -197,16 +185,12 @@ pub fn normalize_email(email: &str) -> Result<String> {
     let trimmed = email.trim().to_lowercase();
     
     if !trimmed.contains('@') {
-        return Err(FedRampError::Validation {
-            message: "Invalid email format: missing @ symbol".to_string(),
-        });
+        return Err(Error::validation("Invalid email format: missing @ symbol"));
     }
 
     let parts: Vec<&str> = trimmed.split('@').collect();
     if parts.len() != 2 || parts[0].is_empty() || parts[1].is_empty() {
-        return Err(FedRampError::Validation {
-            message: "Invalid email format".to_string(),
-        });
+        return Err(Error::validation("Invalid email format"));
     }
 
     Ok(trimmed)

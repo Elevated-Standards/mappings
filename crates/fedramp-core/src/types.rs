@@ -1,4 +1,4 @@
-# Modified: 2025-01-20
+// Modified: 2025-01-20
 
 //! Common type definitions for FedRAMP compliance automation.
 //!
@@ -104,7 +104,7 @@ pub type EntityId = uuid::Uuid;
 pub type Timestamp = chrono::DateTime<chrono::Utc>;
 
 /// Common result type for the platform
-pub type Result<T> = std::result::Result<T, crate::error::FedRampError>;
+pub type Result<T> = std::result::Result<T, crate::error::Error>;
 
 #[cfg(test)]
 mod tests {

@@ -149,7 +149,7 @@ impl DocumentValidator {
     }
 
     /// Extract field value from content using dot notation
-    fn extract_field_value(&self, content: &serde_json::Value, field_path: &str) -> Option<&serde_json::Value> {
+    fn extract_field_value<'a>(&self, content: &'a serde_json::Value, field_path: &str) -> Option<&'a serde_json::Value> {
         let parts: Vec<&str> = field_path.split('.').collect();
         let mut current = content;
         

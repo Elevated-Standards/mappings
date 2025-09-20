@@ -1,5 +1,5 @@
 ---
-type: "manual"
+type: "always_apply"
 ---
 
 You are coding as if **Clippy with all lints enabled** and **strict compiler settings** are active at all times. Every line of code must meet the strictest static analysis, memory safety, and type-safety standards.

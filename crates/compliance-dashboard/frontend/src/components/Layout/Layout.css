@@ -1,0 +1,118 @@
+/* Modified: 2025-09-21 */
+
+@import '../../styles/variables.css';
+
+/* Layout Base */
+.layout {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.layout__container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Container Variants */
+.container {
+  width: 100%;
+  margin: 0 auto;
+  padding: 0 var(--container-padding-mobile);
+}
+
+.container--sm {
+  max-width: 640px;
+}
+
+.container--md {
+  max-width: 768px;
+}
+
+.container--lg {
+  max-width: var(--container-max-width);
+}
+
+.container--xl {
+  max-width: 1440px;
+}
+
+.container--full {
+  max-width: none;
+}
+
+@media (min-width: 768px) {
+  .container {
+    padding: 0 var(--container-padding-tablet);
+  }
+}
+
+@media (min-width: 1024px) {
+  .container {
+    padding: 0 var(--container-padding-desktop);
+  }
+}
+
+/* Grid Item */
+.grid-item {
+  min-width: 0; /* Prevent grid blowout */
+}
+
+/* Stack Component */
+.stack {
+  display: flex;
+  flex-direction: column;
+}
+
+.stack--sm > * + * {
+  margin-top: var(--space-2);
+}
+
+.stack--md > * + * {
+  margin-top: var(--space-4);
+}
+
+.stack--lg > * + * {
+  margin-top: var(--space-6);
+}
+
+/* Responsive Utilities */
+@media (max-width: 767px) {
+  .mobile-hidden {
+    display: none !important;
+  }
+}
+
+@media (min-width: 768px) and (max-width: 1023px) {
+  .tablet-hidden {
+    display: none !important;
+  }
+}
+
+@media (min-width: 1024px) {
+  .desktop-hidden {
+    display: none !important;
+  }
+}
+
+/* Touch-friendly spacing for mobile */
+@media (max-width: 767px) {
+  .touch-spacing {
+    padding: var(--space-3);
+  }
+  
+  .touch-spacing > * + * {
+    margin-top: var(--space-3);
+  }
+}
+
+/* Accessibility improvements */
+@media (prefers-reduced-motion: reduce) {
+  .layout,
+  .layout * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

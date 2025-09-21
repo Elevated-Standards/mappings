@@ -24,6 +24,11 @@ anyhow.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 
+# Web server dependencies
+axum = { version = "0.7", features = ["ws"] }
+tower-http = { version = "0.5", features = ["cors"] }
+env_logger = "0.10"
+
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
 

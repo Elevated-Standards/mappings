@@ -1,0 +1,295 @@
+/* Modified: 2025-09-21 */
+
+@import '../../styles/variables.css';
+
+/* Connection Status */
+.connection-status {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border-light);
+  background-color: var(--color-bg-primary);
+  font-size: var(--font-size-sm);
+}
+
+.connection-status--success {
+  border-color: var(--color-success);
+  background-color: rgba(16, 185, 129, 0.05);
+}
+
+.connection-status--warning {
+  border-color: var(--color-warning);
+  background-color: rgba(245, 158, 11, 0.05);
+}
+
+.connection-status--error {
+  border-color: var(--color-error);
+  background-color: rgba(239, 68, 68, 0.05);
+}
+
+.connection-status__main {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.connection-status__indicator {
+  font-size: var(--font-size-base);
+}
+
+.connection-status__text {
+  font-weight: 500;
+  color: var(--color-text-primary);
+  flex: 1;
+}
+
+.connection-status__refresh {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: var(--space-1);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  transition: all var(--transition-fast);
+}
+
+.connection-status__refresh:hover {
+  background-color: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+}
+
+.connection-status__details {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--color-border-light);
+}
+
+.connection-status__detail {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.connection-status__label {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+}
+
+.connection-status__value {
+  color: var(--color-text-primary);
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+}
+
+.connection-status__value--healthy {
+  color: var(--color-success);
+}
+
+.connection-status__value--unhealthy {
+  color: var(--color-error);
+}
+
+/* Realtime Indicator */
+.realtime-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.realtime-indicator--sm {
+  font-size: var(--font-size-xs);
+}
+
+.realtime-indicator--md {
+  font-size: var(--font-size-sm);
+}
+
+.realtime-indicator--lg {
+  font-size: var(--font-size-base);
+}
+
+.realtime-indicator__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: var(--color-error);
+  animation: pulse 2s infinite;
+}
+
+.realtime-indicator--sm .realtime-indicator__dot {
+  width: 6px;
+  height: 6px;
+}
+
+.realtime-indicator--lg .realtime-indicator__dot {
+  width: 10px;
+  height: 10px;
+}
+
+.realtime-indicator--connected .realtime-indicator__dot {
+  background-color: var(--color-success);
+}
+
+.realtime-indicator--connecting .realtime-indicator__dot {
+  background-color: var(--color-warning);
+  animation: pulse 1s infinite;
+}
+
+.realtime-indicator--disconnected .realtime-indicator__dot {
+  background-color: var(--color-error);
+  animation: none;
+}
+
+.realtime-indicator__text {
+  color: var(--color-text-secondary);
+  font-weight: 500;
+}
+
+.realtime-indicator--connected .realtime-indicator__text {
+  color: var(--color-success);
+}
+
+.realtime-indicator--connecting .realtime-indicator__text {
+  color: var(--color-warning);
+}
+
+.realtime-indicator--disconnected .realtime-indicator__text {
+  color: var(--color-error);
+}
+
+/* Pulse animation */
+@keyframes pulse {
+  0% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.5;
+    transform: scale(1.1);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* WebSocket Debug Panel */
+.websocket-debug {
+  padding: var(--space-4);
+  border: 1px solid var(--color-border-medium);
+  border-radius: var(--radius-lg);
+  background-color: var(--color-bg-primary);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+}
+
+.websocket-debug h3 {
+  margin: 0 0 var(--space-4) 0;
+  font-size: var(--font-size-lg);
+  color: var(--color-text-primary);
+  font-family: var(--font-sans);
+}
+
+.websocket-debug h4 {
+  margin: 0 0 var(--space-2) 0;
+  font-size: var(--font-size-base);
+  color: var(--color-text-primary);
+  font-family: var(--font-sans);
+}
+
+.websocket-debug__section {
+  margin-bottom: var(--space-4);
+}
+
+.websocket-debug__section:last-child {
+  margin-bottom: 0;
+}
+
+.websocket-debug__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  background-color: var(--color-bg-secondary);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border-light);
+}
+
+.websocket-debug__grid > div {
+  color: var(--color-text-secondary);
+}
+
+.websocket-debug__actions {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.websocket-debug__actions button {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border-medium);
+  border-radius: var(--radius-md);
+  background-color: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.websocket-debug__actions button:hover:not(:disabled) {
+  background-color: var(--color-bg-secondary);
+  border-color: var(--color-primary);
+}
+
+.websocket-debug__actions button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Responsive Design */
+@media (max-width: 767px) {
+  .connection-status__detail {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-1);
+  }
+  
+  .websocket-debug__grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .websocket-debug__actions {
+    flex-direction: column;
+  }
+  
+  .websocket-debug__actions button {
+    width: 100%;
+  }
+}
+
+/* High contrast mode */
+@media (prefers-contrast: high) {
+  .connection-status {
+    border-width: 2px;
+  }
+  
+  .realtime-indicator__dot {
+    border: 2px solid currentColor;
+  }
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .realtime-indicator__dot {
+    animation: none;
+  }
+  
+  .connection-status__refresh {
+    transition: none;
+  }
+}

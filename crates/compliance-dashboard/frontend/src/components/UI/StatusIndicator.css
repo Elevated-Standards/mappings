@@ -1,0 +1,213 @@
+/* Modified: 2025-09-21 */
+
+@import '../../styles/variables.css';
+
+/* Status Indicator */
+.status-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-weight: 500;
+  border-radius: var(--radius-md);
+  padding: var(--space-1) var(--space-2);
+}
+
+.status-indicator--sm {
+  font-size: var(--font-size-xs);
+  padding: var(--space-1);
+  gap: var(--space-1);
+}
+
+.status-indicator--md {
+  font-size: var(--font-size-sm);
+}
+
+.status-indicator--lg {
+  font-size: var(--font-size-base);
+  padding: var(--space-2) var(--space-3);
+}
+
+.status-indicator--success {
+  background-color: rgba(16, 185, 129, 0.1);
+  color: var(--color-implemented);
+}
+
+.status-indicator--error {
+  background-color: rgba(239, 68, 68, 0.1);
+  color: var(--color-not-implemented);
+}
+
+.status-indicator--warning {
+  background-color: rgba(245, 158, 11, 0.1);
+  color: var(--color-partial);
+}
+
+.status-indicator--neutral {
+  background-color: rgba(100, 116, 139, 0.1);
+  color: var(--color-not-applicable);
+}
+
+.status-indicator__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+}
+
+.status-indicator__label {
+  white-space: nowrap;
+}
+
+/* Status Badge */
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-full);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.status-badge--success {
+  background-color: var(--color-implemented);
+  color: white;
+}
+
+.status-badge--error {
+  background-color: var(--color-not-implemented);
+  color: white;
+}
+
+.status-badge--warning {
+  background-color: var(--color-partial);
+  color: white;
+}
+
+.status-badge--neutral {
+  background-color: var(--color-not-applicable);
+  color: white;
+}
+
+.status-badge__icon {
+  font-size: var(--font-size-xs);
+}
+
+.status-badge__count {
+  background-color: rgba(255, 255, 255, 0.2);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-full);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  min-width: 1.5rem;
+  text-align: center;
+}
+
+/* Status List */
+.status-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.status-list__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.status-list__percentage {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  min-width: 3rem;
+  text-align: right;
+}
+
+/* Progress Ring */
+.progress-ring {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.progress-ring__svg {
+  transform: rotate(-90deg);
+}
+
+.progress-ring__background {
+  stroke: var(--color-border-light);
+}
+
+.progress-ring__progress {
+  transition: stroke-dashoffset var(--transition-normal);
+  stroke-linecap: round;
+}
+
+.progress-ring__progress--success {
+  stroke: var(--color-implemented);
+}
+
+.progress-ring__progress--error {
+  stroke: var(--color-not-implemented);
+}
+
+.progress-ring__progress--warning {
+  stroke: var(--color-partial);
+}
+
+.progress-ring__progress--neutral {
+  stroke: var(--color-not-applicable);
+}
+
+.progress-ring__text {
+  position: absolute;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.progress-ring--sm .progress-ring__text {
+  font-size: 10px;
+}
+
+.progress-ring--lg .progress-ring__text {
+  font-size: var(--font-size-sm);
+}
+
+/* Responsive adjustments */
+@media (max-width: 767px) {
+  .status-list {
+    gap: var(--space-3);
+  }
+  
+  .status-list__item {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-1);
+  }
+  
+  .status-list__percentage {
+    align-self: flex-end;
+  }
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  .status-indicator--success,
+  .status-indicator--error,
+  .status-indicator--warning,
+  .status-indicator--neutral {
+    border: 2px solid currentColor;
+  }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  .progress-ring__progress {
+    transition: none;
+  }
+}

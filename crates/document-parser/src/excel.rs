@@ -3209,7 +3209,7 @@ impl Ord for PoamSeverity {
 }
 
 /// POA&M likelihood levels
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum PoamLikelihood {
     /// Very high likelihood of exploitation
     VeryHigh,
@@ -3221,6 +3221,37 @@ pub enum PoamLikelihood {
     Low,
     /// Very low likelihood of exploitation
     VeryLow,
+}
+
+impl PartialOrd for PoamLikelihood {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for PoamLikelihood {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        use std::cmp::Ordering;
+        use PoamLikelihood::*;
+
+        let self_rank = match self {
+            VeryHigh => 5,
+            High => 4,
+            Moderate => 3,
+            Low => 2,
+            VeryLow => 1,
+        };
+
+        let other_rank = match other {
+            VeryHigh => 5,
+            High => 4,
+            Moderate => 3,
+            Low => 2,
+            VeryLow => 1,
+        };
+
+        self_rank.cmp(&other_rank)
+    }
 }
 
 /// POA&M impact levels
@@ -3258,7 +3289,7 @@ pub enum PoamStatus {
 }
 
 /// Risk rating calculation result
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum RiskRating {
     /// Very high risk
     VeryHigh,
@@ -3270,6 +3301,37 @@ pub enum RiskRating {
     Low,
     /// Very low risk
     VeryLow,
+}
+
+impl PartialOrd for RiskRating {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for RiskRating {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        use std::cmp::Ordering;
+        use RiskRating::*;
+
+        let self_rank = match self {
+            VeryHigh => 5,
+            High => 4,
+            Moderate => 3,
+            Low => 2,
+            VeryLow => 1,
+        };
+
+        let other_rank = match other {
+            VeryHigh => 5,
+            High => 4,
+            Moderate => 3,
+            Low => 2,
+            VeryLow => 1,
+        };
+
+        self_rank.cmp(&other_rank)
+    }
 }
 
 /// POA&M milestone information
@@ -3999,10 +4061,14 @@ impl PoamTemplateDetector {
         pattern_clean.contains(&header_clean)
     }
 
-    /// Clean column name by removing common words
+    /// Clean column name by removing common words and special characters
     fn clean_column_name(&self, name: &str) -> String {
-        let common_words = ["the", "a", "an", "and", "or", "of", "in", "on", "at", "to", "for"];
-        let words: Vec<&str> = name.split_whitespace()
+        let common_words = ["the", "a", "an", "and", "or", "of", "in", "on", "at", "to", "for", "item"];
+
+        // Remove special characters and normalize
+        let normalized = name.replace("&", "").replace("-", " ").replace("_", " ");
+
+        let words: Vec<&str> = normalized.split_whitespace()
             .filter(|word| !common_words.contains(&word.to_lowercase().as_str()))
             .collect();
         words.join(" ")

@@ -16,11 +16,16 @@
 pub mod config;
 pub mod inventory;
 pub mod poam;
+pub mod poam_column_mapper;
+pub mod poam_transformers;
 pub mod ssp;
 pub mod control_document;
 pub mod loader;
 pub mod engine;
 pub mod validation;
+
+#[cfg(test)]
+pub mod poam_column_mapper_tests;
 
 // Re-export main public APIs for backward compatibility
 pub use config::{
@@ -61,6 +66,27 @@ pub use poam::{
     RequiredFieldCompleteness,
     DataConsistency,
     ControlValidation,
+};
+
+pub use poam_column_mapper::{
+    PoamColumnMapper,
+    PoamMappingConfig,
+    PoamMappingResult,
+    TemplateInfo,
+    PoamFieldMapping,
+    MappingQualityMetrics,
+    TransformationResult,
+    PoamTemplateDetector,
+    PoamMappingValidator,
+};
+
+pub use poam_transformers::{
+    SeverityTransformer,
+    StatusTransformer,
+    DateTransformer,
+    ControlIdTransformer,
+    TextNormalizerTransformer,
+    ListTransformer,
 };
 
 pub use ssp::{

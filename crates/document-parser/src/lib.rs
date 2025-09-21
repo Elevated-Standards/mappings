@@ -7,6 +7,11 @@
 
 pub mod excel;
 pub mod word;
+
+#[cfg(test)]
+pub mod word_tests;
+#[cfg(test)]
+pub mod oscal_tests;
 pub mod markdown;
 pub mod mapping;
 pub mod fuzzy;

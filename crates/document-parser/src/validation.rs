@@ -20,9 +20,13 @@ pub mod confidence;
 pub mod overrides;
 pub mod reports;
 pub mod validators;
+pub mod poam_validator;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+pub mod poam_validator_tests;
 
 // Re-export public API from submodules
 pub use types::*;
@@ -55,6 +59,13 @@ pub use reports::{
     HistoricalReportData, ReportGenerationMetrics,
 };
 pub use validators::{ColumnValidator, DocumentValidator};
+pub use poam_validator::{
+    PoamValidator, PoamValidationConfig, PoamSeverity, PoamStatus, ValidationMode,
+    BusinessRule, RuleCondition, RuleAction, LogicalOperator, CustomValidationRule,
+    PerformanceSettings, PoamValidationResult, ValidationError, ValidationWarning,
+    ValidationSuggestion, FieldValidationResult, BusinessRuleResult,
+    SeverityValidator, StatusValidator, BusinessRuleValidator, CrossFieldValidator, CrossFieldRule,
+};
 
 // Convenience functions for common validation operations
 

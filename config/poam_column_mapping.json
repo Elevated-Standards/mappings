@@ -1,0 +1,286 @@
+{
+  "version": "1.0",
+  "description": "POA&M Column Mapping Configuration",
+  "template_mappings": {
+    "fedramp_poam_v3": {
+      "name": "FedRAMP POA&M v3.0",
+      "version": "3.0",
+      "required_columns": [
+        "POA&M Item ID",
+        "Vulnerability Description", 
+        "Security Control Number",
+        "Severity",
+        "POA&M Status"
+      ],
+      "optional_columns": [
+        "Office/Organization",
+        "Scheduled Completion Date",
+        "Actual Completion Date",
+        "Point of Contact",
+        "Resources Required",
+        "Remediation Plan",
+        "Milestone Description",
+        "Milestone Date",
+        "Affected Assets",
+        "Comments"
+      ],
+      "column_mappings": {
+        "POA&M Item ID": "uuid",
+        "Vulnerability Description": "title",
+        "Security Control Number": "related-controls",
+        "Office/Organization": "origins.actor",
+        "Security Control Name": "props.control-name",
+        "Implementation Guidance": "props.implementation-guidance",
+        "Severity": "props.severity",
+        "POA&M Status": "implementation-status.state",
+        "Scheduled Completion Date": "props.scheduled-completion-date",
+        "Actual Completion Date": "props.actual-completion-date",
+        "Point of Contact": "props.point-of-contact",
+        "Resources Required": "props.resources-required",
+        "Remediation Plan": "description",
+        "Milestone Description": "milestones.description",
+        "Milestone Date": "milestones.target-date",
+        "Milestone Status": "milestones.props.status",
+        "Affected Assets": "props.affected-assets",
+        "Comments": "props.comments"
+      },
+      "validation_overrides": {
+        "severity": "severity_levels",
+        "status": "status_values",
+        "control_id": "control_id_pattern",
+        "date": "date_formats"
+      }
+    },
+    "generic_poam": {
+      "name": "Generic POA&M",
+      "version": "1.0",
+      "required_columns": [
+        "ID",
+        "Description",
+        "Status"
+      ],
+      "optional_columns": [
+        "Severity",
+        "Due Date",
+        "Completion Date",
+        "Owner",
+        "Priority"
+      ],
+      "column_mappings": {
+        "ID": "uuid",
+        "Description": "title",
+        "Status": "implementation-status.state",
+        "Severity": "props.severity",
+        "Due Date": "props.scheduled-completion-date",
+        "Completion Date": "props.actual-completion-date",
+        "Owner": "props.point-of-contact",
+        "Priority": "props.priority"
+      },
+      "validation_overrides": {}
+    }
+  },
+  "field_mappings": {
+    "uuid": {
+      "source_column": "POA&M Item ID|Item ID|ID",
+      "target_field": "uuid",
+      "data_type": "String",
+      "required": true,
+      "transformation": "text_normalizer",
+      "validation": "alphanumeric",
+      "oscal_path": "uuid",
+      "default_value": null,
+      "priority": 100
+    },
+    "title": {
+      "source_column": "Vulnerability Description|Description|Finding|Title",
+      "target_field": "title",
+      "data_type": "String",
+      "required": true,
+      "transformation": "text_normalizer",
+      "validation": null,
+      "oscal_path": "title",
+      "default_value": null,
+      "priority": 90
+    },
+    "related-controls": {
+      "source_column": "Security Control Number|Control Number|Controls",
+      "target_field": "related-controls",
+      "data_type": "Array",
+      "required": true,
+      "transformation": "list",
+      "validation": "control_id_list",
+      "oscal_path": "related-controls",
+      "default_value": [],
+      "priority": 85
+    },
+    "severity": {
+      "source_column": "Severity|Risk Level|Impact|Priority",
+      "target_field": "props.severity",
+      "data_type": "String",
+      "required": true,
+      "transformation": "severity",
+      "validation": "severity_levels",
+      "oscal_path": "props.severity",
+      "default_value": "low",
+      "priority": 80
+    },
+    "status": {
+      "source_column": "POA&M Status|Status|State",
+      "target_field": "implementation-status.state",
+      "data_type": "String",
+      "required": true,
+      "transformation": "status",
+      "validation": "status_values",
+      "oscal_path": "implementation-status.state",
+      "default_value": "open",
+      "priority": 75
+    },
+    "scheduled_completion_date": {
+      "source_column": "Scheduled Completion Date|Target Date|Due Date",
+      "target_field": "props.scheduled-completion-date",
+      "data_type": "Date",
+      "required": false,
+      "transformation": "date",
+      "validation": "date",
+      "oscal_path": "props.scheduled-completion-date",
+      "default_value": null,
+      "priority": 70
+    },
+    "actual_completion_date": {
+      "source_column": "Actual Completion Date|Completed Date|Closed Date",
+      "target_field": "props.actual-completion-date",
+      "data_type": "Date",
+      "required": false,
+      "transformation": "date",
+      "validation": "date",
+      "oscal_path": "props.actual-completion-date",
+      "default_value": null,
+      "priority": 65
+    },
+    "point_of_contact": {
+      "source_column": "Point of Contact|POC|Responsible Party|Owner",
+      "target_field": "props.point-of-contact",
+      "data_type": "String",
+      "required": false,
+      "transformation": "text_normalizer",
+      "validation": null,
+      "oscal_path": "props.point-of-contact",
+      "default_value": null,
+      "priority": 60
+    },
+    "description": {
+      "source_column": "Remediation Plan|Corrective Action|Mitigation|Solution",
+      "target_field": "description",
+      "data_type": "String",
+      "required": false,
+      "transformation": "text_normalizer",
+      "validation": null,
+      "oscal_path": "description",
+      "default_value": null,
+      "priority": 55
+    },
+    "affected_assets": {
+      "source_column": "Affected Assets|Systems|Components|Assets",
+      "target_field": "props.affected-assets",
+      "data_type": "Array",
+      "required": false,
+      "transformation": "list",
+      "validation": "asset_list",
+      "oscal_path": "props.affected-assets",
+      "default_value": [],
+      "priority": 50
+    }
+  },
+  "transformation_rules": [
+    {
+      "name": "severity_normalization",
+      "source_pattern": "severity|risk_level|impact",
+      "target_transformation": "severity",
+      "parameters": {
+        "default_value": "low",
+        "case_insensitive": true
+      }
+    },
+    {
+      "name": "status_normalization", 
+      "source_pattern": "status|state",
+      "target_transformation": "status",
+      "parameters": {
+        "default_value": "open",
+        "case_insensitive": true
+      }
+    },
+    {
+      "name": "date_normalization",
+      "source_pattern": ".*date.*|.*due.*|.*target.*",
+      "target_transformation": "date",
+      "parameters": {
+        "output_format": "YYYY-MM-DD",
+        "handle_excel_serial": true
+      }
+    },
+    {
+      "name": "control_list_processing",
+      "source_pattern": ".*control.*",
+      "target_transformation": "list",
+      "parameters": {
+        "separators": [",", ";", "|", "\n"],
+        "normalize_control_ids": true
+      }
+    }
+  ],
+  "validation_rules": [
+    {
+      "name": "severity_validation",
+      "field": "severity",
+      "validation_type": "enumeration",
+      "parameters": {
+        "allowed_values": ["critical", "high", "moderate", "low", "informational"]
+      },
+      "error_message": "Severity must be one of: critical, high, moderate, low, informational"
+    },
+    {
+      "name": "status_validation",
+      "field": "status", 
+      "validation_type": "enumeration",
+      "parameters": {
+        "allowed_values": ["open", "in-progress", "completed", "risk-accepted", "deferred", "rejected", "closed"]
+      },
+      "error_message": "Status must be a valid POA&M status value"
+    },
+    {
+      "name": "control_id_validation",
+      "field": "control_id",
+      "validation_type": "pattern",
+      "parameters": {
+        "pattern": "^[A-Z]{2}-\\d+(?:\\(\\d+\\))?$"
+      },
+      "error_message": "Control ID must follow NIST format (e.g., AC-1, SC-7(5))"
+    },
+    {
+      "name": "date_validation",
+      "field": "date",
+      "validation_type": "date",
+      "parameters": {
+        "formats": ["YYYY-MM-DD", "MM/DD/YYYY", "DD/MM/YYYY"],
+        "allow_future": true
+      },
+      "error_message": "Date must be in a valid format"
+    },
+    {
+      "name": "required_field_validation",
+      "field": "*",
+      "validation_type": "presence",
+      "parameters": {
+        "required_fields": ["uuid", "title", "severity", "status"]
+      },
+      "error_message": "Required field is missing"
+    }
+  ],
+  "quality_thresholds": {
+    "min_confidence": 0.7,
+    "required_coverage": 0.9,
+    "quality_threshold": 0.8,
+    "max_validation_errors": 5
+  }
+}

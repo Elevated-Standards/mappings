@@ -15,7 +15,6 @@ description = "Automated compliance gap analysis for FedRAMP"
 
 [dependencies]
 fedramp-core.workspace = true
-control-mapping.workspace = true
 tokio.workspace = true
 serde.workspace = true
 serde_json.workspace = true

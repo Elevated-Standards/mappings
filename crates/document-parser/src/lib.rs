@@ -7,6 +7,7 @@
 
 pub mod excel;
 pub mod word;
+pub mod poam;
 
 #[cfg(test)]
 pub mod word_tests;
@@ -17,6 +18,7 @@ pub mod mapping;
 pub mod fuzzy;
 pub mod validation;
 pub mod oscal;
+pub mod quality;
 pub mod error;
 
 use async_trait::async_trait;
@@ -31,6 +33,7 @@ pub use markdown::MarkdownParser;
 pub use mapping::ColumnMapper;
 pub use validation::DocumentValidator;
 pub use oscal::OscalGenerator;
+pub use quality::PoamQualityChecker;
 
 /// Supported document types
 #[derive(Debug, Clone, PartialEq, Eq)]

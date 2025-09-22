@@ -389,10 +389,6 @@ pub struct UuidGenerator {
 /// Metadata builder for OSCAL documents
 #[derive(Debug, Clone)]
 pub struct MetadataBuilder {
-    /// Default organization information
-    default_organization: Option<OscalOrganization>,
-    /// Default author information
-    default_author: Option<OscalAuthor>,
     /// Include provenance information
     include_provenance: bool,
 }
@@ -453,6 +449,59 @@ pub struct ObservationProcessorConfig {
     pub default_expiration_days: Option<u32>,
 }
 
+/// Complete OSCAL POA&M document structure
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OscalPoamDocument {
+    #[serde(rename = "plan-of-action-and-milestones")]
+    pub plan_of_action_and_milestones: PlanOfActionAndMilestones,
+}
+
+/// OSCAL Plan of Action and Milestones structure
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlanOfActionAndMilestones {
+    pub uuid: String,
+    pub metadata: OscalMetadata,
+    #[serde(rename = "import-ssp", skip_serializing_if = "Option::is_none")]
+    pub import_ssp: Option<ImportSsp>,
+    #[serde(rename = "system-id", skip_serializing_if = "Option::is_none")]
+    pub system_id: Option<String>,
+    #[serde(rename = "local-definitions", skip_serializing_if = "Option::is_none")]
+    pub local_definitions: Option<LocalDefinitions>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub observations: Option<Vec<OscalObservation>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub risks: Option<Vec<OscalRisk>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub findings: Option<Vec<OscalFinding>>,
+    #[serde(rename = "poam-items")]
+    pub poam_items: Vec<OscalPoamItem>,
+    #[serde(rename = "back-matter", skip_serializing_if = "Option::is_none")]
+    pub back_matter: Option<serde_json::Value>,
+}
+
+/// OSCAL Import SSP structure
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImportSsp {
+    pub href: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub remarks: Option<String>,
+}
+
+/// OSCAL Local Definitions structure
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LocalDefinitions {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub components: Option<Vec<serde_json::Value>>,
+    #[serde(rename = "inventory-items", skip_serializing_if = "Option::is_none")]
+    pub inventory_items: Option<Vec<serde_json::Value>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub users: Option<Vec<serde_json::Value>>,
+    #[serde(rename = "assessment-assets", skip_serializing_if = "Option::is_none")]
+    pub assessment_assets: Option<Vec<serde_json::Value>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tasks: Option<Vec<serde_json::Value>>,
+}
+
 impl OscalGenerator {
     /// Create a new OSCAL generator
     #[must_use]
@@ -463,6 +512,9 @@ impl OscalGenerator {
             poam_processor: PoamItemProcessor::new(),
             risk_processor: RiskProcessor::new(),
             observation_processor: ObservationProcessor::new(),
+            schema_validator: OscalSchemaValidator::new(),
+            uuid_generator: UuidGenerator::new(),
+            metadata_builder: MetadataBuilder::new(),
         }
     }
 
@@ -475,6 +527,9 @@ impl OscalGenerator {
             poam_processor: PoamItemProcessor::new(),
             risk_processor: RiskProcessor::new(),
             observation_processor: ObservationProcessor::new(),
+            schema_validator: OscalSchemaValidator::new(),
+            uuid_generator: UuidGenerator::new(),
+            metadata_builder: MetadataBuilder::new(),
         }
     }
 
@@ -493,6 +548,9 @@ impl OscalGenerator {
             poam_processor,
             risk_processor,
             observation_processor,
+            schema_validator: OscalSchemaValidator::new(),
+            uuid_generator: UuidGenerator::new(),
+            metadata_builder: MetadataBuilder::new(),
         }
     }
 
@@ -500,13 +558,14 @@ impl OscalGenerator {
     pub fn generate_poam(&self, content: &serde_json::Value, metadata: &serde_json::Value) -> Result<serde_json::Value> {
         info!("Generating OSCAL POA&M document");
 
-        let document_uuid = Uuid::new_v4().to_string();
+        let document_uuid = self.uuid_generator.generate_document_uuid();
         let current_time = chrono::Utc::now().to_rfc3339();
 
-        let oscal_metadata = self.create_metadata(
+        let oscal_metadata = self.metadata_builder.create_metadata(
             "Plan of Action and Milestones",
             &current_time,
             metadata,
+            &self.oscal_version,
         )?;
 
         // Extract POA&M items from parsed content
@@ -1502,6 +1561,158 @@ impl Default for ObservationProcessorConfig {
     }
 }
 
+impl OscalSchemaValidator {
+    /// Create a new OSCAL schema validator
+    pub fn new() -> Self {
+        Self {
+            schemas: HashMap::new(),
+            strict_validation: true,
+        }
+    }
+
+    /// Validate OSCAL document against schema
+    pub fn validate_document(&self, document: &serde_json::Value, doc_type: &OscalDocumentType) -> Result<()> {
+        debug!("Validating OSCAL document of type: {:?}", doc_type);
+
+        // Basic structural validation
+        let root_key = match doc_type {
+            OscalDocumentType::PlanOfActionAndMilestones => "plan-of-action-and-milestones",
+            OscalDocumentType::ComponentDefinition => "component-definition",
+            OscalDocumentType::SystemSecurityPlan => "system-security-plan",
+            OscalDocumentType::AssessmentPlan => "assessment-plan",
+            OscalDocumentType::AssessmentResults => "assessment-results",
+        };
+
+        let root_object = document.get(root_key)
+            .ok_or_else(|| Error::document_parsing(format!("Missing root object: {}", root_key)))?;
+
+        // Validate required fields
+        if !root_object.get("uuid").is_some() {
+            return Err(Error::document_parsing("Missing required field: uuid".to_string()));
+        }
+
+        if !root_object.get("metadata").is_some() {
+            return Err(Error::document_parsing("Missing required field: metadata".to_string()));
+        }
+
+        // Validate POA&M specific requirements
+        if matches!(doc_type, OscalDocumentType::PlanOfActionAndMilestones) {
+            if let Some(poam_items) = root_object.get("poam-items").and_then(|v| v.as_array()) {
+                for (i, item) in poam_items.iter().enumerate() {
+                    self.validate_poam_item(item, i)?;
+                }
+            }
+        }
+
+        info!("OSCAL document validation passed");
+        Ok(())
+    }
+
+    /// Validate individual POA&M item
+    fn validate_poam_item(&self, item: &serde_json::Value, index: usize) -> Result<()> {
+        let item_obj = item.as_object()
+            .ok_or_else(|| Error::document_parsing(format!("POA&M item {} is not an object", index)))?;
+
+        // Required fields
+        if !item_obj.contains_key("uuid") {
+            return Err(Error::document_parsing(format!("POA&M item {} missing uuid", index)));
+        }
+
+        if !item_obj.contains_key("title") {
+            return Err(Error::document_parsing(format!("POA&M item {} missing title", index)));
+        }
+
+        if !item_obj.contains_key("description") {
+            return Err(Error::document_parsing(format!("POA&M item {} missing description", index)));
+        }
+
+        Ok(())
+    }
+}
+
+impl UuidGenerator {
+    /// Create a new UUID generator
+    pub fn new() -> Self {
+        Self {
+            namespace: None,
+            generated_uuids: std::collections::HashSet::new(),
+        }
+    }
+
+    /// Generate a unique UUID for documents
+    pub fn generate_document_uuid(&self) -> String {
+        Uuid::new_v4().to_string()
+    }
+
+    /// Generate a unique UUID for POA&M items
+    pub fn generate_poam_item_uuid(&self) -> String {
+        Uuid::new_v4().to_string()
+    }
+
+    /// Generate a unique UUID for any OSCAL object
+    pub fn generate_object_uuid(&self) -> String {
+        Uuid::new_v4().to_string()
+    }
+
+    /// Check if UUID is unique (not previously generated)
+    pub fn is_unique_uuid(&self, uuid: &str) -> bool {
+        !self.generated_uuids.contains(uuid)
+    }
+}
+
+impl MetadataBuilder {
+    /// Create a new metadata builder
+    pub fn new() -> Self {
+        Self {
+            include_provenance: true,
+        }
+    }
+
+    /// Create OSCAL metadata structure
+    pub fn create_metadata(
+        &self,
+        title: &str,
+        last_modified: &str,
+        source_metadata: &serde_json::Value,
+        oscal_version: &str,
+    ) -> Result<OscalMetadata> {
+        let version = source_metadata.get("version")
+            .and_then(|v| v.as_str())
+            .unwrap_or("1.0.0")
+            .to_string();
+
+        let mut props = Vec::new();
+
+        // Add source file information
+        if let Some(source_file) = source_metadata.get("source_file").and_then(|v| v.as_str()) {
+            props.push(OscalProperty {
+                name: "source-file".to_string(),
+                value: source_file.to_string(),
+                class: Some("source".to_string()),
+            });
+        }
+
+        // Add parser information
+        if let Some(parser_version) = source_metadata.get("parser_version").and_then(|v| v.as_str()) {
+            props.push(OscalProperty {
+                name: "parser-version".to_string(),
+                value: parser_version.to_string(),
+                class: Some("tool".to_string()),
+            });
+        }
+
+        Ok(OscalMetadata {
+            title: title.to_string(),
+            published: None,
+            last_modified: last_modified.to_string(),
+            version: version,
+            oscal_version: oscal_version.to_string(),
+            props: if props.is_empty() { None } else { Some(props) },
+            responsible_parties: None,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1595,5 +1806,127 @@ mod tests {
         assert_ne!(uuid1, uuid2);
         assert_eq!(uuid1.len(), 36); // Standard UUID length
         assert!(uuid1.contains('-'));
+    }
+
+    #[tokio::test]
+    async fn test_enhanced_poam_generation() {
+        let generator = OscalGenerator::new();
+
+        let content = json!({
+            "poam_items": [
+                {
+                    "uuid": "test-item-1",
+                    "title": "Test Vulnerability",
+                    "description": "Test vulnerability description",
+                    "severity": "High",
+                    "status": "Open",
+                    "scheduled_completion_date": "2024-12-31T23:59:59Z",
+                    "actual_completion_date": null,
+                    "responsible_entity": "Security Team",
+                    "resources_required": "2 FTE",
+                    "milestones": [
+                        {
+                            "description": "Initial assessment",
+                            "scheduled_date": "2024-06-30T23:59:59Z"
+                        }
+                    ]
+                }
+            ]
+        });
+
+        let metadata = json!({
+            "source_file": "test_poam.xlsx",
+            "parser_version": "1.0.0",
+            "version": "1.0.0"
+        });
+
+        let result = generator.generate_poam(&content, &metadata).unwrap();
+
+        // Validate structure
+        assert!(result.get("plan-of-action-and-milestones").is_some());
+        let poam_doc = result.get("plan-of-action-and-milestones").unwrap();
+
+        assert!(poam_doc.get("uuid").is_some());
+        assert!(poam_doc.get("metadata").is_some());
+        assert!(poam_doc.get("poam-items").is_some());
+
+        let poam_items = poam_doc.get("poam-items").unwrap().as_array().unwrap();
+        assert_eq!(poam_items.len(), 1);
+
+        let first_item = &poam_items[0];
+        assert_eq!(first_item.get("uuid").unwrap().as_str().unwrap(), "test-item-1");
+        assert_eq!(first_item.get("title").unwrap().as_str().unwrap(), "Test Vulnerability");
+    }
+
+    #[test]
+    fn test_schema_validator() {
+        let validator = OscalSchemaValidator::new();
+
+        let valid_doc = json!({
+            "plan-of-action-and-milestones": {
+                "uuid": "test-uuid",
+                "metadata": {
+                    "title": "Test POA&M",
+                    "last_modified": "2024-01-15T10:00:00Z",
+                    "version": "1.0.0",
+                    "oscal_version": "1.1.2"
+                },
+                "poam-items": [
+                    {
+                        "uuid": "item-1",
+                        "title": "Test Item",
+                        "description": "Test description"
+                    }
+                ]
+            }
+        });
+
+        let result = validator.validate_document(&valid_doc, &OscalDocumentType::PlanOfActionAndMilestones);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_uuid_generator() {
+        let generator = UuidGenerator::new();
+
+        let uuid1 = generator.generate_document_uuid();
+        let uuid2 = generator.generate_poam_item_uuid();
+        let uuid3 = generator.generate_object_uuid();
+
+        assert_ne!(uuid1, uuid2);
+        assert_ne!(uuid2, uuid3);
+        assert_ne!(uuid1, uuid3);
+
+        // All should be valid UUIDs
+        assert_eq!(uuid1.len(), 36);
+        assert_eq!(uuid2.len(), 36);
+        assert_eq!(uuid3.len(), 36);
+    }
+
+    #[test]
+    fn test_metadata_builder() {
+        let builder = MetadataBuilder::new();
+
+        let source_metadata = json!({
+            "source_file": "test.xlsx",
+            "parser_version": "2.0.0",
+            "version": "1.5.0"
+        });
+
+        let result = builder.create_metadata(
+            "Test Document",
+            "2024-01-15T10:00:00Z",
+            &source_metadata,
+            "1.1.2"
+        ).unwrap();
+
+        assert_eq!(result.title, "Test Document");
+        assert_eq!(result.version, "1.5.0");
+        assert_eq!(result.oscal_version, "1.1.2");
+        assert!(result.props.is_some());
+
+        let props = result.props.unwrap();
+        assert!(props.iter().any(|p| p.name == "source-file" && p.value == "test.xlsx"));
+        assert!(props.iter().any(|p| p.name == "parser-version" && p.value == "2.0.0"));
     }
 }

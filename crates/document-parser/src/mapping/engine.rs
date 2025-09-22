@@ -650,7 +650,7 @@ impl ColumnMapper {
         }
 
         if let Some(loader) = &mut self.config_loader {
-            let config: MappingConfiguration = loader.load_from_path(path).await?;
+            let config: MappingConfiguration = loader.load_all_configurations().await?;
             self.optimized_lookup = Some(OptimizedMappingLookup::from_configuration(&config)?);
             info!("Successfully loaded configuration from file");
             Ok(())

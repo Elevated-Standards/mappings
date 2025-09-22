@@ -32,6 +32,7 @@ pub struct PoamColumnMapping {
     pub oscal_field: String,
     pub required: bool,
     pub validation: Option<String>,
+    pub data_type: Option<String>,
 }
 
 /// POA&M validation rules

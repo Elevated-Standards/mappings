@@ -18,6 +18,8 @@ pub mod inventory;
 pub mod poam;
 pub mod poam_column_mapper;
 pub mod poam_transformers;
+pub mod date_converter;
+pub mod date_parsers;
 pub mod ssp;
 pub mod control_document;
 pub mod loader;
@@ -87,6 +89,19 @@ pub use poam_transformers::{
     ControlIdTransformer,
     TextNormalizerTransformer,
     ListTransformer,
+};
+
+pub use date_converter::{
+    DateConverter,
+    DateParsingResult,
+    DateParser,
+    TimezoneConfig,
+    DateFormatPreferences,
+    DateValidationRule,
+    DateRuleType,
+    DateConstraint,
+    DateParseError,
+    DateWarning,
 };
 
 pub use ssp::{

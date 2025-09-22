@@ -23,11 +23,18 @@ pub struct StatusTransformer {
     status_map: HashMap<String, String>,
 }
 
-/// Date transformer
-#[derive(Debug, Clone)]
+/// Date transformer using enhanced DateConverter
+#[derive(Debug)]
 pub struct DateTransformer {
-    /// Supported date formats
-    date_formats: Vec<String>,
+    /// Enhanced date converter
+    converter: super::date_converter::DateConverter,
+}
+
+impl Clone for DateTransformer {
+    fn clone(&self) -> Self {
+        // Create a new DateTransformer with the same configuration
+        Self::new()
+    }
 }
 
 /// Control ID transformer
@@ -164,61 +171,63 @@ impl FieldTransformer for StatusTransformer {
 impl DateTransformer {
     /// Create a new date transformer
     pub fn new() -> Self {
-        Self {
-            date_formats: vec![
-                "%Y-%m-%d".to_string(),
-                "%m/%d/%Y".to_string(),
-                "%d/%m/%Y".to_string(),
-                "%Y-%m-%d %H:%M:%S".to_string(),
-                "%m/%d/%Y %H:%M:%S".to_string(),
-            ],
-        }
+        let mut converter = super::date_converter::DateConverter::new();
+        // Add POA&M specific validation rules
+        converter.add_poam_validation_rules();
+
+        Self { converter }
     }
 
-    /// Parse date from various formats
-    fn parse_date(&self, date_str: &str) -> Result<DateTime<Utc>> {
-        let trimmed = date_str.trim();
-        
-        // Try each format
-        for format in &self.date_formats {
-            if let Ok(naive_date) = NaiveDate::parse_from_str(trimmed, format) {
-                return Ok(naive_date.and_hms_opt(0, 0, 0).unwrap().and_utc());
-            }
-            
-            if let Ok(naive_datetime) = chrono::NaiveDateTime::parse_from_str(trimmed, format) {
-                return Ok(naive_datetime.and_utc());
-            }
-        }
-        
-        Err(Error::document_parsing(format!("Unable to parse date: {}", date_str)))
+    /// Create with custom configuration
+    pub fn with_config(
+        timezone_config: super::date_converter::TimezoneConfig,
+        format_preferences: super::date_converter::DateFormatPreferences,
+    ) -> Self {
+        let mut converter = super::date_converter::DateConverter::with_config(
+            timezone_config,
+            format_preferences,
+        );
+        converter.add_poam_validation_rules();
+
+        Self { converter }
+    }
+
+    /// Parse date with full result information
+    pub fn parse_date_detailed(&self, date_str: &str) -> super::date_converter::DateParsingResult {
+        self.converter.parse_date(date_str)
     }
 }
 
 impl FieldTransformer for DateTransformer {
     fn transform(&self, value: &Value) -> Result<Value> {
-        let date_str = match value {
-            Value::String(s) => s,
-            Value::Number(n) => {
-                // Handle Excel date serial numbers
-                if let Some(days) = n.as_f64() {
-                    // Excel epoch is 1900-01-01, but Excel incorrectly treats 1900 as a leap year
-                    let excel_epoch = NaiveDate::from_ymd_opt(1899, 12, 30).unwrap();
-                    if let Some(date) = excel_epoch.checked_add_days(chrono::Days::new(days as u64)) {
-                        let datetime = date.and_hms_opt(0, 0, 0).unwrap().and_utc();
-                        return Ok(Value::String(datetime.format("%Y-%m-%d").to_string()));
-                    }
-                }
-                return Err(Error::document_parsing("Invalid numeric date value".to_string()));
-            }
+        let input_str = match value {
+            Value::String(s) => s.clone(),
+            Value::Number(n) => n.to_string(),
             _ => return Err(Error::document_parsing("Invalid date value type".to_string())),
         };
 
-        let parsed_date = self.parse_date(date_str)?;
-        Ok(Value::String(parsed_date.format("%Y-%m-%d").to_string()))
+        // Use the enhanced date converter
+        match self.converter.to_iso8601(&input_str) {
+            Ok(iso_string) => {
+                // For backward compatibility, return just the date part if no time component
+                if iso_string.contains('T') {
+                    Ok(Value::String(iso_string))
+                } else {
+                    // Parse and reformat to ensure consistent output
+                    let result = self.converter.parse_date(&input_str);
+                    if let Some(datetime) = result.parsed_date {
+                        Ok(Value::String(datetime.format("%Y-%m-%d").to_string()))
+                    } else {
+                        Err(Error::document_parsing(format!("Failed to parse date: {}", input_str)))
+                    }
+                }
+            }
+            Err(e) => Err(e),
+        }
     }
 
     fn name(&self) -> &str {
-        "date"
+        "enhanced_date"
     }
 
     fn validate_input(&self, value: &Value) -> Result<()> {

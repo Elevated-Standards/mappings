@@ -11,6 +11,7 @@ use std::collections::HashMap;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 use chrono::{DateTime, Utc};
+use jsonschema::{JSONSchema, ValidationError};
 
 /// OSCAL document types
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -359,6 +360,41 @@ pub struct OscalGenerator {
     risk_processor: RiskProcessor,
     /// Observation processor
     observation_processor: ObservationProcessor,
+    /// Schema validator
+    schema_validator: OscalSchemaValidator,
+    /// UUID generator
+    uuid_generator: UuidGenerator,
+    /// Metadata builder
+    metadata_builder: MetadataBuilder,
+}
+
+/// OSCAL schema validator for validating generated documents
+#[derive(Debug, Clone)]
+pub struct OscalSchemaValidator {
+    /// Cached compiled schemas
+    schemas: HashMap<OscalDocumentType, String>,
+    /// Enable strict validation
+    strict_validation: bool,
+}
+
+/// UUID generator for OSCAL objects
+#[derive(Debug, Clone)]
+pub struct UuidGenerator {
+    /// UUID namespace for organization
+    namespace: Option<uuid::Uuid>,
+    /// Track generated UUIDs to avoid duplicates
+    generated_uuids: std::collections::HashSet<String>,
+}
+
+/// Metadata builder for OSCAL documents
+#[derive(Debug, Clone)]
+pub struct MetadataBuilder {
+    /// Default organization information
+    default_organization: Option<OscalOrganization>,
+    /// Default author information
+    default_author: Option<OscalAuthor>,
+    /// Include provenance information
+    include_provenance: bool,
 }
 
 /// POA&M item processor for converting parsed data to OSCAL POA&M items

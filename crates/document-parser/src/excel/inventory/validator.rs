@@ -258,6 +258,7 @@ impl InventoryValidator {
             field_results: HashMap::new(),
             errors: Vec::new(),
             warnings: Vec::new(),
+            suggestions: Vec::new(),
         };
 
         // Validate basic fields
@@ -305,7 +306,13 @@ impl InventoryValidator {
 
         // Validate description
         if asset.description.len() > 1000 {
-            result.warnings.push("Description is very long (>1000 characters)".to_string());
+            result.warnings.push(ValidationWarning {
+                code: "LONG_DESCRIPTION".to_string(),
+                message: "Description is very long (>1000 characters)".to_string(),
+                asset_id: Some(asset.asset_id.clone()),
+                field: Some("description".to_string()),
+                row: None,
+            });
         }
 
         Ok(())
@@ -417,10 +424,22 @@ impl InventoryValidator {
                     let message = format!("Required field '{}' is missing", field);
                     match rule.severity {
                         ValidationSeverity::Error | ValidationSeverity::Critical => {
-                            result.errors.push(message);
+                            result.errors.push(ValidationError {
+                                code: "MISSING_REQUIRED_FIELD".to_string(),
+                                message,
+                                asset_id: Some(asset.asset_id.clone()),
+                                field: Some(field.clone()),
+                                row: None,
+                            });
                         }
                         ValidationSeverity::Warning => {
-                            result.warnings.push(message);
+                            result.warnings.push(ValidationWarning {
+                                code: "MISSING_REQUIRED_FIELD".to_string(),
+                                message,
+                                asset_id: Some(asset.asset_id.clone()),
+                                field: Some(field.clone()),
+                                row: None,
+                            });
                         }
                         ValidationSeverity::Info => {
                             // Info level - could be logged but not added to results
@@ -436,10 +455,22 @@ impl InventoryValidator {
                             let message = format!("Field '{}' format is invalid", field);
                             match rule.severity {
                                 ValidationSeverity::Error | ValidationSeverity::Critical => {
-                                    result.errors.push(message);
+                                    result.errors.push(ValidationError {
+                                        code: "INVALID_FIELD_FORMAT".to_string(),
+                                        message,
+                                        asset_id: Some(asset.asset_id.clone()),
+                                        field: Some(field.clone()),
+                                        row: None,
+                                    });
                                 }
                                 ValidationSeverity::Warning => {
-                                    result.warnings.push(message);
+                                    result.warnings.push(ValidationWarning {
+                                        code: "INVALID_FIELD_FORMAT".to_string(),
+                                        message,
+                                        asset_id: Some(asset.asset_id.clone()),
+                                        field: Some(field.clone()),
+                                        row: None,
+                                    });
                                 }
                                 ValidationSeverity::Info => {}
                             }
@@ -453,10 +484,22 @@ impl InventoryValidator {
                     let message = format!("Field '{}' has invalid value: {}", field, field_value);
                     match rule.severity {
                         ValidationSeverity::Error | ValidationSeverity::Critical => {
-                            result.errors.push(message);
+                            result.errors.push(ValidationError {
+                                code: "INVALID_FIELD_VALUE".to_string(),
+                                message,
+                                asset_id: Some(asset.asset_id.clone()),
+                                field: Some(field.clone()),
+                                row: None,
+                            });
                         }
                         ValidationSeverity::Warning => {
-                            result.warnings.push(message);
+                            result.warnings.push(ValidationWarning {
+                                code: "INVALID_FIELD_VALUE".to_string(),
+                                message,
+                                asset_id: Some(asset.asset_id.clone()),
+                                field: Some(field.clone()),
+                                row: None,
+                            });
                         }
                         ValidationSeverity::Info => {}
                     }

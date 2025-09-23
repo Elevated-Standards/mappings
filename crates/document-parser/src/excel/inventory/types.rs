@@ -175,6 +175,20 @@ pub enum Environment {
     Sandbox,
 }
 
+impl std::fmt::Display for Environment {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Environment::Production => write!(f, "Production"),
+            Environment::Development => write!(f, "Development"),
+            Environment::Testing => write!(f, "Testing"),
+            Environment::Staging => write!(f, "Staging"),
+            Environment::Training => write!(f, "Training"),
+            Environment::DisasterRecovery => write!(f, "Disaster Recovery"),
+            Environment::Sandbox => write!(f, "Sandbox"),
+        }
+    }
+}
+
 /// Criticality levels for business impact
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum Criticality {
@@ -186,6 +200,17 @@ pub enum Criticality {
     High,
     /// Critical business impact
     Critical,
+}
+
+impl std::fmt::Display for Criticality {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Criticality::Low => write!(f, "Low"),
+            Criticality::Medium => write!(f, "Medium"),
+            Criticality::High => write!(f, "High"),
+            Criticality::Critical => write!(f, "Critical"),
+        }
+    }
 }
 
 /// Network-specific asset information
@@ -403,6 +428,21 @@ pub enum RelationshipType {
     Related,
 }
 
+impl std::fmt::Display for RelationshipType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RelationshipType::DependsOn => write!(f, "depends-on"),
+            RelationshipType::Hosts => write!(f, "hosts"),
+            RelationshipType::ConnectedTo => write!(f, "connected-to"),
+            RelationshipType::Manages => write!(f, "manages"),
+            RelationshipType::Monitors => write!(f, "monitors"),
+            RelationshipType::BacksUp => write!(f, "backs-up"),
+            RelationshipType::Replicates => write!(f, "replicates"),
+            RelationshipType::Related => write!(f, "related"),
+        }
+    }
+}
+
 /// Relationship strength levels
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum RelationshipStrength {
@@ -536,6 +576,25 @@ pub struct ValidationWarning {
     pub row: Option<usize>,
 }
 
+/// Validation suggestion information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ValidationSuggestion {
+    /// Suggestion type
+    pub suggestion_type: String,
+    /// Suggestion message
+    pub message: String,
+    /// Field to modify
+    pub field: Option<String>,
+    /// Suggested value
+    pub suggested_value: Option<String>,
+    /// Asset ID if applicable
+    pub asset_id: Option<String>,
+    /// Row number if applicable
+    pub row: Option<usize>,
+}
+
+
+
 /// Asset-specific validation result
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AssetValidationResult {
@@ -546,9 +605,11 @@ pub struct AssetValidationResult {
     /// Field validation results
     pub field_results: HashMap<String, FieldValidationResult>,
     /// Asset-level errors
-    pub errors: Vec<String>,
+    pub errors: Vec<ValidationError>,
     /// Asset-level warnings
-    pub warnings: Vec<String>,
+    pub warnings: Vec<ValidationWarning>,
+    /// Validation suggestions
+    pub suggestions: Vec<ValidationSuggestion>,
 }
 
 /// Field validation result

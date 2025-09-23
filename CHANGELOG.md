@@ -21,6 +21,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Relationship mapping for discovering asset dependencies and network topology
   - Comprehensive validation with field-level, asset-level, and relationship-level checks
   - Data enrichment and transformation capabilities for inventory processing
+- Inventory Column Mapping system for transforming Excel inventory data to OSCAL components
+  - Advanced column mapping using configurable inventory_mappings.json configuration
+  - Type-specific asset transformers for hardware, software, network, virtual, data, and cloud assets
+  - Comprehensive validation and property mapping with OSCAL component generation
+  - Integration with existing inventory parser and mapping loader systems
+- Comprehensive Asset Validation system for inventory data integrity and compliance
+  - Multi-level validation with asset type, environment, attribute, and relationship validators
+  - Business rule validation for FedRAMP compliance requirements
+  - Enumeration validation against predefined asset types and environments
+  - Cross-field validation and dependency checking for asset relationships
+  - Detailed validation reporting with errors, warnings, and suggestions
+- Network Data Processing system for comprehensive network analysis and validation
+  - IP address validation and classification (IPv4/IPv6, public/private, loopback, multicast)
+  - MAC address processing with vendor lookup and virtual MAC detection
+  - Network topology analysis with device discovery and connection mapping
+  - Port and protocol validation with security configuration analysis
+  - Compliance rule enforcement for FedRAMP network security requirements
 - Complete compliance dashboard frontend implementation with React 19.1.1 and TypeScript
 - Responsive layout system with mobile-first design and CSS Grid/Flexbox
 - Comprehensive component library for compliance data visualization including:

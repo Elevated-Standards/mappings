@@ -16,6 +16,18 @@ use std::collections::HashMap;
 use tracing::{debug, warn};
 use uuid::Uuid;
 
+/// Asset transformer trait for type-specific processing
+pub trait AssetTransformer: Send + Sync {
+    /// Transform asset data to OSCAL component
+    fn transform_asset(&self, asset: &Asset, mapping: &InventoryColumnMappings) -> Result<OscalComponent>;
+
+    /// Validate asset data
+    fn validate_asset(&self, asset: &Asset, mapping: &InventoryColumnMappings) -> Result<Vec<MappingValidationResult>>;
+
+    /// Get asset type this transformer handles
+    fn asset_type(&self) -> AssetType;
+}
+
 /// Hardware asset transformer
 #[derive(Debug, Clone)]
 pub struct HardwareTransformer {
@@ -156,17 +168,17 @@ impl HardwareTransformer {
 
 impl AssetTransformer for HardwareTransformer {
     fn transform_asset(&self, asset: &Asset, _mapping: &InventoryColumnMappings) -> Result<OscalComponent> {
-        debug!("Transforming hardware asset: {}", asset.id);
+        debug!("Transforming hardware asset: {}", asset.asset_id);
 
         let mut props = HashMap::new();
         
         // Map basic properties
         if let Some(ref hardware_info) = asset.hardware_info {
-            if let Some(ref manufacturer) = hardware_info.manufacturer {
-                props.insert("hardware-manufacturer".to_string(), manufacturer.clone());
+            if !hardware_info.manufacturer.is_empty() {
+                props.insert("hardware-manufacturer".to_string(), hardware_info.manufacturer.clone());
             }
-            if let Some(ref model) = hardware_info.model {
-                props.insert("hardware-model".to_string(), model.clone());
+            if !hardware_info.model.is_empty() {
+                props.insert("hardware-model".to_string(), hardware_info.model.clone());
             }
             if let Some(ref serial_number) = hardware_info.serial_number {
                 props.insert("hardware-serial-number".to_string(), serial_number.clone());
@@ -175,10 +187,12 @@ impl AssetTransformer for HardwareTransformer {
 
         // Map network information
         if let Some(ref network_info) = asset.network_info {
-            if let Some(ref ip_address) = network_info.ip_address {
-                props.insert("ip-address".to_string(), ip_address.clone());
+            if !network_info.ip_addresses.is_empty() {
+                let ip_address = network_info.ip_addresses[0].to_string();
+                props.insert("ip-address".to_string(), ip_address);
             }
-            if let Some(ref mac_address) = network_info.mac_address {
+            if !network_info.mac_addresses.is_empty() {
+                let mac_address = &network_info.mac_addresses[0];
                 props.insert("mac-address".to_string(), mac_address.clone());
             }
         }
@@ -189,14 +203,14 @@ impl AssetTransformer for HardwareTransformer {
 
         // Create responsible roles
         let mut responsible_roles = HashMap::new();
-        if let Some(ref owner) = asset.owner {
-            responsible_roles.insert("asset-owner".to_string(), owner.clone());
+        if !asset.owner.is_empty() {
+            responsible_roles.insert("asset-owner".to_string(), asset.owner.clone());
         }
 
         let component = OscalComponent {
-            uuid: asset.id.clone(),
-            title: asset.name.clone(),
-            description: asset.description.clone(),
+            uuid: asset.asset_id.clone(),
+            title: asset.asset_name.clone(),
+            description: Some(asset.description.clone()),
             component_type: self.config.default_component_type.clone(),
             props,
             responsible_roles,
@@ -213,16 +227,16 @@ impl AssetTransformer for HardwareTransformer {
         for field in &self.config.required_fields {
             let validation_result = match field.as_str() {
                 "id" => {
-                    if asset.id.is_empty() {
+                    if asset.asset_id.is_empty() {
                         MappingValidationResult {
-                            asset_id: asset.id.clone(),
+                            asset_id: asset.asset_id.clone(),
                             status: ValidationStatus::Failed,
                             message: "Asset ID is required".to_string(),
                             field: Some("id".to_string()),
                         }
                     } else {
                         MappingValidationResult {
-                            asset_id: asset.id.clone(),
+                            asset_id: asset.asset_id.clone(),
                             status: ValidationStatus::Passed,
                             message: "Asset ID is valid".to_string(),
                             field: Some("id".to_string()),
@@ -230,16 +244,16 @@ impl AssetTransformer for HardwareTransformer {
                     }
                 }
                 "name" => {
-                    if asset.name.is_empty() {
+                    if asset.asset_name.is_empty() {
                         MappingValidationResult {
-                            asset_id: asset.id.clone(),
+                            asset_id: asset.asset_id.clone(),
                             status: ValidationStatus::Failed,
                             message: "Asset name is required".to_string(),
                             field: Some("name".to_string()),
                         }
                     } else {
                         MappingValidationResult {
-                            asset_id: asset.id.clone(),
+                            asset_id: asset.asset_id.clone(),
                             status: ValidationStatus::Passed,
                             message: "Asset name is valid".to_string(),
                             field: Some("name".to_string()),
@@ -247,7 +261,7 @@ impl AssetTransformer for HardwareTransformer {
                     }
                 }
                 _ => MappingValidationResult {
-                    asset_id: asset.id.clone(),
+                    asset_id: asset.asset_id.clone(),
                     status: ValidationStatus::Passed,
                     message: format!("Field {} validated", field),
                     field: Some(field.clone()),
@@ -259,7 +273,7 @@ impl AssetTransformer for HardwareTransformer {
         // Validate hardware-specific fields
         if asset.hardware_info.is_none() {
             results.push(MappingValidationResult {
-                asset_id: asset.id.clone(),
+                asset_id: asset.asset_id.clone(),
                 status: ValidationStatus::Warning,
                 message: "Hardware information is missing".to_string(),
                 field: Some("hardware_info".to_string()),
@@ -305,20 +319,20 @@ impl SoftwareTransformer {
 
 impl AssetTransformer for SoftwareTransformer {
     fn transform_asset(&self, asset: &Asset, _mapping: &InventoryColumnMappings) -> Result<OscalComponent> {
-        debug!("Transforming software asset: {}", asset.id);
+        debug!("Transforming software asset: {}", asset.asset_id);
 
         let mut props = HashMap::new();
         
         // Map software-specific properties
         if let Some(ref software_info) = asset.software_info {
-            if let Some(ref vendor) = software_info.vendor {
-                props.insert("software-vendor".to_string(), vendor.clone());
+            if !software_info.vendor.is_empty() {
+                props.insert("software-vendor".to_string(), software_info.vendor.clone());
             }
-            if let Some(ref version) = software_info.version {
-                props.insert("software-version".to_string(), version.clone());
+            if !software_info.version.is_empty() {
+                props.insert("software-version".to_string(), software_info.version.clone());
             }
             if let Some(ref license) = software_info.license {
-                props.insert("software-license".to_string(), license.clone());
+                props.insert("software-license".to_string(), license.license_type.clone());
             }
         }
 
@@ -328,14 +342,14 @@ impl AssetTransformer for SoftwareTransformer {
 
         // Create responsible roles
         let mut responsible_roles = HashMap::new();
-        if let Some(ref owner) = asset.owner {
-            responsible_roles.insert("asset-owner".to_string(), owner.clone());
+        if !asset.owner.is_empty() {
+            responsible_roles.insert("asset-owner".to_string(), asset.owner.clone());
         }
 
         let component = OscalComponent {
-            uuid: asset.id.clone(),
-            title: asset.name.clone(),
-            description: asset.description.clone(),
+            uuid: asset.asset_id.clone(),
+            title: asset.asset_name.clone(),
+            description: Some(asset.description.clone()),
             component_type: self.config.default_component_type.clone(),
             props,
             responsible_roles,
@@ -349,18 +363,18 @@ impl AssetTransformer for SoftwareTransformer {
         let mut results = Vec::new();
 
         // Basic validation similar to hardware transformer
-        if asset.id.is_empty() {
+        if asset.asset_id.is_empty() {
             results.push(MappingValidationResult {
-                asset_id: asset.id.clone(),
+                asset_id: asset.asset_id.clone(),
                 status: ValidationStatus::Failed,
                 message: "Asset ID is required".to_string(),
                 field: Some("id".to_string()),
             });
         }
 
-        if asset.name.is_empty() {
+        if asset.asset_name.is_empty() {
             results.push(MappingValidationResult {
-                asset_id: asset.id.clone(),
+                asset_id: asset.asset_id.clone(),
                 status: ValidationStatus::Failed,
                 message: "Asset name is required".to_string(),
                 field: Some("name".to_string()),
@@ -370,7 +384,7 @@ impl AssetTransformer for SoftwareTransformer {
         // Validate software-specific fields
         if asset.software_info.is_none() {
             results.push(MappingValidationResult {
-                asset_id: asset.id.clone(),
+                asset_id: asset.asset_id.clone(),
                 status: ValidationStatus::Warning,
                 message: "Software information is missing".to_string(),
                 field: Some("software_info".to_string()),
@@ -417,23 +431,27 @@ impl NetworkTransformer {
 
 impl AssetTransformer for NetworkTransformer {
     fn transform_asset(&self, asset: &Asset, _mapping: &InventoryColumnMappings) -> Result<OscalComponent> {
-        debug!("Transforming network asset: {}", asset.id);
+        debug!("Transforming network asset: {}", asset.asset_id);
 
         let mut props = HashMap::new();
 
         // Map network-specific properties
         if let Some(ref network_info) = asset.network_info {
-            if let Some(ref ip_address) = network_info.ip_address {
-                props.insert("ip-address".to_string(), ip_address.clone());
+            if !network_info.ip_addresses.is_empty() {
+                let ip_address = network_info.ip_addresses[0].to_string();
+                props.insert("ip-address".to_string(), ip_address);
             }
-            if let Some(ref mac_address) = network_info.mac_address {
+            if !network_info.mac_addresses.is_empty() {
+                let mac_address = &network_info.mac_addresses[0];
                 props.insert("mac-address".to_string(), mac_address.clone());
             }
-            if let Some(ref subnet) = network_info.subnet {
-                props.insert("network-subnet".to_string(), subnet.clone());
+            if !network_info.network_segments.is_empty() {
+                let segment = &network_info.network_segments[0];
+                props.insert("network-segment".to_string(), segment.clone());
             }
-            if let Some(ref vlan) = network_info.vlan {
-                props.insert("vlan-id".to_string(), vlan.clone());
+            if !network_info.protocols.is_empty() {
+                let protocol = &network_info.protocols[0];
+                props.insert("protocol".to_string(), protocol.clone());
             }
         }
 
@@ -443,14 +461,14 @@ impl AssetTransformer for NetworkTransformer {
 
         // Create responsible roles
         let mut responsible_roles = HashMap::new();
-        if let Some(ref owner) = asset.owner {
-            responsible_roles.insert("asset-owner".to_string(), owner.clone());
+        if !asset.owner.is_empty() {
+            responsible_roles.insert("asset-owner".to_string(), asset.owner.clone());
         }
 
         let component = OscalComponent {
-            uuid: asset.id.clone(),
-            title: asset.name.clone(),
-            description: asset.description.clone(),
+            uuid: asset.asset_id.clone(),
+            title: asset.asset_name.clone(),
+            description: Some(asset.description.clone()),
             component_type: self.config.default_component_type.clone(),
             props,
             responsible_roles,
@@ -464,18 +482,18 @@ impl AssetTransformer for NetworkTransformer {
         let mut results = Vec::new();
 
         // Basic validation
-        if asset.id.is_empty() {
+        if asset.asset_id.is_empty() {
             results.push(MappingValidationResult {
-                asset_id: asset.id.clone(),
+                asset_id: asset.asset_id.clone(),
                 status: ValidationStatus::Failed,
                 message: "Asset ID is required".to_string(),
                 field: Some("id".to_string()),
             });
         }
 
-        if asset.name.is_empty() {
+        if asset.asset_name.is_empty() {
             results.push(MappingValidationResult {
-                asset_id: asset.id.clone(),
+                asset_id: asset.asset_id.clone(),
                 status: ValidationStatus::Failed,
                 message: "Asset name is required".to_string(),
                 field: Some("name".to_string()),
@@ -484,10 +502,10 @@ impl AssetTransformer for NetworkTransformer {
 
         // Validate network-specific fields
         if let Some(ref network_info) = asset.network_info {
-            if let Some(ref ip_address) = network_info.ip_address {
-                if !Self::is_valid_ip_address(ip_address) {
+            for ip_address in &network_info.ip_addresses {
+                if !Self::is_valid_ip_address(&ip_address.to_string()) {
                     results.push(MappingValidationResult {
-                        asset_id: asset.id.clone(),
+                        asset_id: asset.asset_id.clone(),
                         status: ValidationStatus::Failed,
                         message: format!("Invalid IP address: {}", ip_address),
                         field: Some("ip_address".to_string()),
@@ -495,10 +513,10 @@ impl AssetTransformer for NetworkTransformer {
                 }
             }
 
-            if let Some(ref mac_address) = network_info.mac_address {
+            for mac_address in &network_info.mac_addresses {
                 if !Self::is_valid_mac_address(mac_address) {
                     results.push(MappingValidationResult {
-                        asset_id: asset.id.clone(),
+                        asset_id: asset.asset_id.clone(),
                         status: ValidationStatus::Failed,
                         message: format!("Invalid MAC address: {}", mac_address),
                         field: Some("mac_address".to_string()),
@@ -507,7 +525,7 @@ impl AssetTransformer for NetworkTransformer {
             }
         } else {
             results.push(MappingValidationResult {
-                asset_id: asset.id.clone(),
+                asset_id: asset.asset_id.clone(),
                 status: ValidationStatus::Warning,
                 message: "Network information is missing".to_string(),
                 field: Some("network_info".to_string()),
@@ -572,14 +590,14 @@ impl AssetTransformer for VirtualTransformer {
         props.insert("virtual".to_string(), "true".to_string());
 
         let mut responsible_roles = HashMap::new();
-        if let Some(ref owner) = asset.owner {
-            responsible_roles.insert("asset-owner".to_string(), owner.clone());
+        if !asset.owner.is_empty() {
+            responsible_roles.insert("asset-owner".to_string(), asset.owner.clone());
         }
 
         Ok(OscalComponent {
-            uuid: asset.id.clone(),
-            title: asset.name.clone(),
-            description: asset.description.clone(),
+            uuid: asset.asset_id.clone(),
+            title: asset.asset_name.clone(),
+            description: Some(asset.description.clone()),
             component_type: self.config.default_component_type.clone(),
             props,
             responsible_roles,
@@ -589,9 +607,9 @@ impl AssetTransformer for VirtualTransformer {
 
     fn validate_asset(&self, asset: &Asset, _mapping: &InventoryColumnMappings) -> Result<Vec<MappingValidationResult>> {
         let mut results = Vec::new();
-        if asset.id.is_empty() {
+        if asset.asset_id.is_empty() {
             results.push(MappingValidationResult {
-                asset_id: asset.id.clone(),
+                asset_id: asset.asset_id.clone(),
                 status: ValidationStatus::Failed,
                 message: "Asset ID is required".to_string(),
                 field: Some("id".to_string()),
@@ -624,14 +642,14 @@ impl AssetTransformer for DataTransformer {
         props.insert("asset-type".to_string(), "data".to_string());
 
         let mut responsible_roles = HashMap::new();
-        if let Some(ref owner) = asset.owner {
-            responsible_roles.insert("asset-owner".to_string(), owner.clone());
+        if !asset.owner.is_empty() {
+            responsible_roles.insert("asset-owner".to_string(), asset.owner.clone());
         }
 
         Ok(OscalComponent {
-            uuid: asset.id.clone(),
-            title: asset.name.clone(),
-            description: asset.description.clone(),
+            uuid: asset.asset_id.clone(),
+            title: asset.asset_name.clone(),
+            description: Some(asset.description.clone()),
             component_type: self.config.default_component_type.clone(),
             props,
             responsible_roles,
@@ -641,9 +659,9 @@ impl AssetTransformer for DataTransformer {
 
     fn validate_asset(&self, asset: &Asset, _mapping: &InventoryColumnMappings) -> Result<Vec<MappingValidationResult>> {
         let mut results = Vec::new();
-        if asset.id.is_empty() {
+        if asset.asset_id.is_empty() {
             results.push(MappingValidationResult {
-                asset_id: asset.id.clone(),
+                asset_id: asset.asset_id.clone(),
                 status: ValidationStatus::Failed,
                 message: "Asset ID is required".to_string(),
                 field: Some("id".to_string()),
@@ -676,23 +694,23 @@ impl AssetTransformer for CloudTransformer {
         props.insert("deployment-model".to_string(), "cloud".to_string());
 
         if let Some(ref cloud_info) = asset.cloud_info {
-            if let Some(ref provider) = cloud_info.provider {
-                props.insert("cloud-provider".to_string(), provider.clone());
+            if !cloud_info.provider.is_empty() {
+                props.insert("cloud-provider".to_string(), cloud_info.provider.clone());
             }
-            if let Some(ref region) = cloud_info.region {
-                props.insert("cloud-region".to_string(), region.clone());
+            if !cloud_info.region.is_empty() {
+                props.insert("cloud-region".to_string(), cloud_info.region.clone());
             }
         }
 
         let mut responsible_roles = HashMap::new();
-        if let Some(ref owner) = asset.owner {
-            responsible_roles.insert("asset-owner".to_string(), owner.clone());
+        if !asset.owner.is_empty() {
+            responsible_roles.insert("asset-owner".to_string(), asset.owner.clone());
         }
 
         Ok(OscalComponent {
-            uuid: asset.id.clone(),
-            title: asset.name.clone(),
-            description: asset.description.clone(),
+            uuid: asset.asset_id.clone(),
+            title: asset.asset_name.clone(),
+            description: Some(asset.description.clone()),
             component_type: self.config.default_component_type.clone(),
             props,
             responsible_roles,
@@ -702,9 +720,9 @@ impl AssetTransformer for CloudTransformer {
 
     fn validate_asset(&self, asset: &Asset, _mapping: &InventoryColumnMappings) -> Result<Vec<MappingValidationResult>> {
         let mut results = Vec::new();
-        if asset.id.is_empty() {
+        if asset.asset_id.is_empty() {
             results.push(MappingValidationResult {
-                asset_id: asset.id.clone(),
+                asset_id: asset.asset_id.clone(),
                 status: ValidationStatus::Failed,
                 message: "Asset ID is required".to_string(),
                 field: Some("id".to_string()),

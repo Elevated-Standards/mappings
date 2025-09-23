@@ -13,6 +13,8 @@ pub mod validator;
 pub mod mapper;
 pub mod column_mapper;
 pub mod transformers;
+pub mod asset_validator;
+pub mod network_processor;
 
 pub use types::*;
 pub use parser::*;
@@ -22,6 +24,8 @@ pub use validator::*;
 pub use mapper::*;
 pub use column_mapper::*;
 pub use transformers::*;
+pub use asset_validator::*;
+pub use network_processor::*;
 
 use parser::{InventoryParserCore, MockWorkbook};
 use crate::Result;

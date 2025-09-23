@@ -7,6 +7,7 @@
 //! component fields with asset type-specific handling.
 
 use super::types::*;
+use super::transformers::*;
 use crate::mapping::loader::MappingConfigurationLoader;
 use crate::mapping::inventory::{InventoryMappings, InventoryColumnMapping};
 use crate::Result;
@@ -259,29 +260,18 @@ pub enum ValidationStatus {
 }
 
 /// Main inventory column mapper
-#[derive(Debug)]
 pub struct InventoryColumnMapper {
     /// Mapping configuration
-    mapping_config: InventoryMappingConfig,
+    mapping_config: InventoryMappings,
     /// Mapping loader for configuration files
     mapping_loader: MappingConfigurationLoader,
     /// Asset transformers by type
     asset_transformers: HashMap<AssetType, Box<dyn AssetTransformer>>,
-    /// Relationship mapper
-    relationship_mapper: RelationshipMapper,
+    /// Relationship mappings
+    relationship_mappings: Vec<RelationshipMapping>,
 }
 
-/// Asset transformer trait for type-specific processing
-pub trait AssetTransformer: Send + Sync {
-    /// Transform asset data to OSCAL component
-    fn transform_asset(&self, asset: &Asset, mapping: &AssetMapping) -> Result<OscalComponent>;
-    
-    /// Validate asset data
-    fn validate_asset(&self, asset: &Asset, mapping: &AssetMapping) -> Result<Vec<MappingValidationResult>>;
-    
-    /// Get asset type this transformer handles
-    fn asset_type(&self) -> AssetType;
-}
+
 
 impl InventoryColumnMapper {
     /// Create a new inventory column mapper
@@ -290,13 +280,13 @@ impl InventoryColumnMapper {
         let mapping_config = mapping_loader.load_inventory_mappings().await?;
 
         let asset_transformers = Self::create_asset_transformers()?;
-        let relationship_mapper = RelationshipMapper::new();
+        let relationship_mappings = Vec::new();
 
         Ok(Self {
             mapping_config,
             mapping_loader,
             asset_transformers,
-            relationship_mapper,
+            relationship_mappings,
         })
     }
 
@@ -338,10 +328,10 @@ impl InventoryColumnMapper {
                     total_confidence += component_result.confidence;
                 }
                 Err(e) => {
-                    warn!("Failed to map asset {}: {}", asset.id, e);
-                    unmapped_assets.push(asset.id.clone());
+                    warn!("Failed to map asset {}: {}", asset.asset_id, e);
+                    unmapped_assets.push(asset.asset_id.clone());
                     validation_results.push(MappingValidationResult {
-                        asset_id: asset.id.clone(),
+                        asset_id: asset.asset_id.clone(),
                         status: ValidationStatus::Failed,
                         message: format!("Mapping failed: {}", e),
                         field: None,
@@ -390,7 +380,7 @@ impl InventoryColumnMapper {
 
     /// Map a single asset to an OSCAL component
     async fn map_asset_to_component(&self, asset: &Asset) -> Result<ComponentMappingResult> {
-        debug!("Mapping asset {} to OSCAL component", asset.id);
+        debug!("Mapping asset {} to OSCAL component", asset.asset_id);
 
         // Get the appropriate transformer for this asset type
         let transformer = self.asset_transformers.get(&asset.asset_type)

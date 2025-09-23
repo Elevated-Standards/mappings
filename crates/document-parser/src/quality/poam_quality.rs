@@ -43,7 +43,7 @@ impl PoamQualityChecker {
             completeness_analyzer: CompletenessAnalyzer::with_config(&config),
             accuracy_validator: AccuracyValidator::with_config(&config),
             consistency_checker: ConsistencyChecker::with_config(&config),
-            compliance_assessor: ComplianceAssessor::with_config(&config),
+            compliance_assessor: ComplianceAssessor::with_config((&config).into()),
             quality_config: config,
         }
     }

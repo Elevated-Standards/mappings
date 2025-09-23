@@ -58,7 +58,11 @@ pub use reports::{
     CommonIssueInfo, IssueRateDataPoint, TrendRecommendation, CachedReport,
     HistoricalReportData, ReportGenerationMetrics,
 };
-pub use validators::{ColumnValidator, DocumentValidator};
+pub use validators::{
+    ColumnValidator, DocumentValidator, ColumnValidationConfig, DocumentValidationConfig,
+    ValidationPatterns, ValidityThresholds, ValidatorRegistry, ValidatorMetadata,
+    ValidatorPerformanceInfo, MemoryUsage, CustomValidatorFn, ValidationHelpers,
+};
 pub use poam_validator::{
     PoamValidator, PoamValidationConfig, PoamSeverity, PoamStatus, ValidationMode,
     BusinessRule, RuleCondition, RuleAction, LogicalOperator, CustomValidationRule,

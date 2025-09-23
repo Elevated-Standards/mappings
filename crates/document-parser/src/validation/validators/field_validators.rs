@@ -1,39 +1,20 @@
-//! Main validator implementations
+// Modified: 2025-09-22
 
-use std::collections::HashMap;
-use std::time::{Duration, Instant};
-use serde_json::Value;
-use tracing::{debug, info, warn};
-use crate::{Error, Result};
-use crate::mapping::MappingConfiguration;
+//! Field-level validation implementation
+//!
+//! This module contains the ColumnValidator implementation for validating
+//! individual columns against expected data types and constraints.
+
 use super::types::*;
-use super::rules::*;
-
-/// Column validator for validating individual columns
-#[derive(Debug, Clone)]
-pub struct ColumnValidator {
-    /// Mapping configuration for validation rules
-    mapping_config: MappingConfiguration,
-    /// Minimum quality threshold for acceptance
-    min_quality_threshold: f64,
-    /// Performance target in milliseconds
-    performance_target_ms: u64,
-    /// Custom validation functions
-    custom_validators: HashMap<String, fn(&[Value]) -> Result<(ValidationStatus, String)>>,
-}
-
-/// Document validator for comprehensive document validation
-#[derive(Debug, Clone)]
-pub struct DocumentValidator {
-    /// Validation rules loaded from configuration
-    rules: HashMap<String, Vec<ValidationRule>>,
-    /// Column validator for field-level validation
-    column_validator: Option<ColumnValidator>,
-    /// Minimum quality threshold for document acceptance
-    min_quality_threshold: f64,
-    /// Performance metrics
-    performance_metrics: HashMap<String, Duration>,
-}
+use super::validation_helpers::ValidationHelpers;
+use crate::{Result};
+use crate::mapping::MappingConfiguration;
+use super::super::types::*;
+use super::super::rules::DataType;
+use serde_json::Value;
+use std::collections::HashMap;
+use std::time::Instant;
+use tracing::debug;
 
 impl ColumnValidator {
     /// Create a new column validator with mapping configuration
@@ -44,6 +25,50 @@ impl ColumnValidator {
             performance_target_ms: 50,
             custom_validators: HashMap::new(),
         }
+    }
+
+    /// Create a column validator with custom configuration
+    pub fn with_config(mapping_config: MappingConfiguration, config: ColumnValidationConfig) -> Self {
+        Self {
+            mapping_config,
+            min_quality_threshold: config.min_quality_threshold,
+            performance_target_ms: config.performance_target_ms,
+            custom_validators: HashMap::new(),
+        }
+    }
+
+    /// Add a custom validator function
+    pub fn add_custom_validator(
+        &mut self,
+        name: String,
+        validator: fn(&[Value]) -> Result<(ValidationStatus, String)>,
+    ) {
+        self.custom_validators.insert(name, validator);
+    }
+
+    /// Remove a custom validator
+    pub fn remove_custom_validator(&mut self, name: &str) -> bool {
+        self.custom_validators.remove(name).is_some()
+    }
+
+    /// Get the minimum quality threshold
+    pub fn get_min_quality_threshold(&self) -> f64 {
+        self.min_quality_threshold
+    }
+
+    /// Set the minimum quality threshold
+    pub fn set_min_quality_threshold(&mut self, threshold: f64) {
+        self.min_quality_threshold = threshold.clamp(0.0, 1.0);
+    }
+
+    /// Get the performance target in milliseconds
+    pub fn get_performance_target_ms(&self) -> u64 {
+        self.performance_target_ms
+    }
+
+    /// Set the performance target in milliseconds
+    pub fn set_performance_target_ms(&mut self, target_ms: u64) {
+        self.performance_target_ms = target_ms;
     }
 
     /// Validate a column against expected data type and constraints
@@ -88,8 +113,45 @@ impl ColumnValidator {
             severity,
             message,
             expected_type: Some(format!("{:?}", expected_type)),
-            actual_type: Some(self.detect_data_type(column_data)),
+            actual_type: Some(ValidationHelpers::detect_data_type(column_data)),
             sample_invalid_values,
+            validation_time_us: validation_time.as_micros() as u64,
+        })
+    }
+
+    /// Validate a column using a custom validator
+    pub fn validate_column_custom(
+        &self,
+        field_id: &str,
+        source_column: &str,
+        column_data: &[Value],
+        validator_name: &str,
+    ) -> Result<ColumnValidationResult> {
+        let start_time = Instant::now();
+
+        let (status, message) = if let Some(validator) = self.custom_validators.get(validator_name) {
+            validator(column_data)?
+        } else {
+            return Err(crate::Error::validation(format!("Custom validator '{}' not found", validator_name)));
+        };
+
+        let validation_time = start_time.elapsed();
+        let severity = if status == ValidationStatus::Valid {
+            ValidationSeverity::Info
+        } else {
+            ValidationSeverity::Warning
+        };
+
+        Ok(ColumnValidationResult {
+            field_id: field_id.to_string(),
+            source_column: source_column.to_string(),
+            passed: status == ValidationStatus::Valid,
+            status,
+            severity,
+            message,
+            expected_type: Some("Custom".to_string()),
+            actual_type: Some(ValidationHelpers::detect_data_type(column_data)),
+            sample_invalid_values: Vec::new(),
             validation_time_us: validation_time.as_micros() as u64,
         })
     }
@@ -301,7 +363,7 @@ impl ColumnValidator {
         for value in values {
             match value {
                 Value::String(s) => {
-                    if self.is_valid_date(s) {
+                    if ValidationHelpers::is_valid_date(s) {
                         valid_count += 1;
                     } else {
                         invalid_values.push(s.clone());
@@ -356,7 +418,7 @@ impl ColumnValidator {
         for value in values {
             match value {
                 Value::String(s) => {
-                    if self.is_valid_email(s) {
+                    if ValidationHelpers::is_valid_email(s) {
                         valid_count += 1;
                     } else {
                         invalid_values.push(s.clone());
@@ -404,7 +466,7 @@ impl ColumnValidator {
         for value in values {
             match value {
                 Value::String(s) => {
-                    if self.is_valid_url(s) {
+                    if ValidationHelpers::is_valid_url(s) {
                         valid_count += 1;
                     } else {
                         invalid_values.push(s.clone());
@@ -452,7 +514,7 @@ impl ColumnValidator {
         for value in values {
             match value {
                 Value::String(s) => {
-                    if self.is_valid_ip_address(s) {
+                    if ValidationHelpers::is_valid_ip_address(s) {
                         valid_count += 1;
                     } else {
                         invalid_values.push(s.clone());
@@ -500,7 +562,7 @@ impl ColumnValidator {
         for value in values {
             match value {
                 Value::String(s) => {
-                    if self.is_valid_uuid(s) {
+                    if ValidationHelpers::is_valid_uuid(s) {
                         valid_count += 1;
                     } else {
                         invalid_values.push(s.clone());
@@ -538,134 +600,5 @@ impl ColumnValidator {
         );
 
         Ok((status, message, invalid_values))
-    }
-
-    /// Detect the actual data type of column values
-    fn detect_data_type(&self, values: &[Value]) -> String {
-        let mut type_counts = HashMap::new();
-        
-        for value in values.iter().filter(|v| !v.is_null()) {
-            let detected_type = match value {
-                Value::String(s) => {
-                    if self.is_valid_date(s) {
-                        "Date"
-                    } else if self.is_valid_email(s) {
-                        "Email"
-                    } else if self.is_valid_url(s) {
-                        "URL"
-                    } else if self.is_valid_ip_address(s) {
-                        "IP Address"
-                    } else if self.is_valid_uuid(s) {
-                        "UUID"
-                    } else if s.parse::<i64>().is_ok() {
-                        "Integer"
-                    } else if s.parse::<f64>().is_ok() {
-                        "Float"
-                    } else {
-                        "String"
-                    }
-                }
-                Value::Number(n) => {
-                    if n.is_i64() {
-                        "Integer"
-                    } else {
-                        "Float"
-                    }
-                }
-                Value::Bool(_) => "Boolean",
-                Value::Array(_) => "Array",
-                Value::Object(_) => "Object",
-                Value::Null => "Null",
-            };
-            
-            *type_counts.entry(detected_type).or_insert(0) += 1;
-        }
-        
-        // Return the most common type
-        type_counts.into_iter()
-            .max_by_key(|(_, count)| *count)
-            .map(|(type_name, _)| type_name.to_string())
-            .unwrap_or_else(|| "Unknown".to_string())
-    }
-
-    /// Check if a string is a valid date
-    fn is_valid_date(&self, s: &str) -> bool {
-        // Simple date validation - can be enhanced with proper date parsing
-        let date_patterns = [
-            r"^\d{4}-\d{2}-\d{2}$",           // YYYY-MM-DD
-            r"^\d{2}/\d{2}/\d{4}$",           // MM/DD/YYYY
-            r"^\d{2}-\d{2}-\d{4}$",           // MM-DD-YYYY
-            r"^\d{1,2}/\d{1,2}/\d{4}$",       // M/D/YYYY
-        ];
-        
-        date_patterns.iter().any(|pattern| {
-            regex::Regex::new(pattern).map(|re| re.is_match(s)).unwrap_or(false)
-        })
-    }
-
-    /// Check if a string is a valid email
-    fn is_valid_email(&self, s: &str) -> bool {
-        // Simple email validation
-        let email_pattern = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$";
-        regex::Regex::new(email_pattern).map(|re| re.is_match(s)).unwrap_or(false)
-    }
-
-    /// Check if a string is a valid URL
-    fn is_valid_url(&self, s: &str) -> bool {
-        // Simple URL validation
-        s.starts_with("http://") || s.starts_with("https://") || s.starts_with("ftp://")
-    }
-
-    /// Check if a string is a valid IP address
-    fn is_valid_ip_address(&self, s: &str) -> bool {
-        // Simple IPv4 validation
-        let ip_pattern = r"^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$";
-        regex::Regex::new(ip_pattern).map(|re| re.is_match(s)).unwrap_or(false)
-    }
-
-    /// Check if a string is a valid UUID
-    fn is_valid_uuid(&self, s: &str) -> bool {
-        // Simple UUID validation
-        let uuid_pattern = r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$";
-        regex::Regex::new(uuid_pattern).map(|re| re.is_match(s)).unwrap_or(false)
-    }
-}
-
-impl DocumentValidator {
-    /// Create a new document validator
-    #[must_use]
-    pub fn new() -> Self {
-        Self {
-            rules: HashMap::new(),
-            column_validator: None,
-            min_quality_threshold: 0.8,
-            performance_metrics: HashMap::new(),
-        }
-    }
-
-    /// Create a document validator with column validator
-    pub fn with_column_validator(column_validator: ColumnValidator) -> Self {
-        Self {
-            rules: HashMap::new(),
-            column_validator: Some(column_validator),
-            min_quality_threshold: 0.8,
-            performance_metrics: HashMap::new(),
-        }
-    }
-
-    /// Check if document meets quality threshold
-    pub fn meets_quality_threshold(&self, metrics: &super::QualityMetrics) -> bool {
-        metrics.overall_quality_score >= self.min_quality_threshold
-    }
-
-    /// Get performance metrics
-    pub fn get_performance_metrics(&self) -> &HashMap<String, Duration> {
-        &self.performance_metrics
-    }
-}
-
-impl Default for DocumentValidator {
-    fn default() -> Self {
-        Self::new()
     }
 }

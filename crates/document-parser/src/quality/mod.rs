@@ -16,14 +16,18 @@ pub use poam_quality::*;
 pub use completeness::*;
 pub use accuracy::*;
 pub use consistency::*;
-pub use compliance::*;
+pub use compliance::{
+    ComplianceAssessor, ComplianceResult, ComplianceCheckResult, ComplianceViolation,
+    ComplianceConfig, ComplianceCheckType, ComplianceStatistics,
+    FedRampComplianceChecker, OscalComplianceChecker, RegulatoryComplianceChecker, RegulatoryRule
+};
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use chrono::{DateTime, Utc};
 
 /// Quality severity levels for findings
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum QualitySeverity {
     /// Critical issues that block processing or compliance
     Critical,

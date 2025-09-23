@@ -6,7 +6,7 @@
 //! including dependencies, connections, and hierarchical relationships.
 
 use super::types::*;
-use crate::excel::core::Workbook;
+use super::parser::MockWorkbook;
 use crate::Result;
 use fedramp_core::Error;
 use serde::{Deserialize, Serialize};
@@ -190,7 +190,7 @@ impl RelationshipMapper {
     pub async fn map_relationships(
         &self,
         assets: &[Asset],
-        workbook: &Workbook,
+        workbook: &MockWorkbook,
         template_info: &InventoryTemplateInfo,
     ) -> Result<Vec<AssetRelationship>> {
         info!("Starting relationship mapping for {} assets", assets.len());
@@ -244,7 +244,7 @@ impl RelationshipMapper {
     /// Parse explicit relationships from relationship worksheets
     async fn parse_explicit_relationships(
         &self,
-        workbook: &Workbook,
+        workbook: &MockWorkbook,
         template_info: &InventoryTemplateInfo,
     ) -> Result<Vec<AssetRelationship>> {
         let mut relationships = Vec::new();
@@ -252,9 +252,9 @@ impl RelationshipMapper {
         for worksheet_name in &template_info.relationship_worksheets {
             debug!("Parsing relationships from worksheet: {}", worksheet_name);
 
-            let worksheet = workbook.get_worksheet(worksheet_name)?;
-            let headers = self.extract_relationship_headers(&worksheet)?;
-            let data_rows = self.extract_relationship_data(&worksheet, &headers)?;
+            let worksheet_data = workbook.get_worksheet_data(worksheet_name)?;
+            let headers = self.extract_relationship_headers(worksheet_name)?;
+            let data_rows = worksheet_data;
 
             for (row_index, row_data) in data_rows.iter().enumerate() {
                 match self.parse_relationship_row(row_data, row_index + 2).await {
@@ -376,11 +376,13 @@ impl RelationshipMapper {
             relationships.iter().map(|_| 0.8).sum::<f64>() / relationships.len() as f64
         };
 
+        let total_relationships = relationships.len();
+
         Ok(RelationshipDetectionResult {
             relationships,
             statistics: DetectionStatistics {
                 total_assets: assets.len(),
-                total_relationships: relationships.len(),
+                total_relationships,
                 relationships_by_type,
                 average_confidence,
                 detection_time_ms: 0, // Would be calculated in real implementation
@@ -685,7 +687,7 @@ impl RelationshipMapper {
         let mut seen_pairs = HashSet::new();
         let asset_ids: HashSet<String> = assets.iter().map(|a| a.asset_id.clone()).collect();
 
-        for relationship in relationships {
+        for relationship in &relationships {
             // Validate that both assets exist
             if !asset_ids.contains(&relationship.source_asset_id) || 
                !asset_ids.contains(&relationship.target_asset_id) {
@@ -701,7 +703,7 @@ impl RelationshipMapper {
 
             if !seen_pairs.contains(&pair_key) {
                 seen_pairs.insert(pair_key);
-                unique_relationships.push(relationship);
+                unique_relationships.push(relationship.clone());
             }
         }
 
@@ -710,7 +712,7 @@ impl RelationshipMapper {
     }
 
     /// Extract relationship headers from worksheet
-    fn extract_relationship_headers(&self, worksheet: &crate::excel::core::Worksheet) -> Result<Vec<String>> {
+    fn extract_relationship_headers(&self, worksheet_name: &str) -> Result<Vec<String>> {
         // Placeholder implementation
         Ok(vec![
             "Source Asset ID".to_string(),
@@ -724,7 +726,7 @@ impl RelationshipMapper {
     /// Extract relationship data from worksheet
     fn extract_relationship_data(
         &self,
-        worksheet: &crate::excel::core::Worksheet,
+        worksheet_name: &str,
         headers: &[String],
     ) -> Result<Vec<HashMap<String, String>>> {
         // Placeholder implementation

@@ -19,7 +19,7 @@ pub use processor::*;
 pub use validator::*;
 pub use mapper::*;
 
-use crate::excel::core::ExcelParser;
+use super::parser::{InventoryParserCore, MockWorkbook};
 use crate::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -28,18 +28,8 @@ use tracing::{debug, info, warn};
 /// Main inventory parser for FedRAMP Integrated Inventory Workbooks
 #[derive(Debug, Clone)]
 pub struct InventoryParser {
-    /// Base Excel parser for file operations
-    base_parser: ExcelParser,
-    /// Template detector for identifying inventory formats
-    template_detector: InventoryTemplateDetector,
-    /// Asset processor for handling different asset types
-    asset_processor: AssetProcessor,
-    /// Relationship mapper for asset dependencies
-    relationship_mapper: RelationshipMapper,
-    /// Validator for inventory data integrity
-    validator: InventoryValidator,
-    /// Configuration for parsing behavior
-    config: InventoryParserConfig,
+    /// Core parser implementation
+    core: InventoryParserCore,
 }
 
 /// Configuration for inventory parsing operations
@@ -77,79 +67,19 @@ impl Default for InventoryParserConfig {
 
 impl InventoryParser {
     /// Create a new inventory parser with default configuration
-    pub fn new() -> Result<Self> {
+    pub fn new() -> Self {
         Self::with_config(InventoryParserConfig::default())
     }
 
     /// Create a new inventory parser with custom configuration
-    pub fn with_config(config: InventoryParserConfig) -> Result<Self> {
-        let base_parser = ExcelParser::new()?;
-        let template_detector = InventoryTemplateDetector::new();
-        let asset_processor = AssetProcessor::new();
-        let relationship_mapper = RelationshipMapper::new();
-        let validator = InventoryValidator::new();
-
-        Ok(Self {
-            base_parser,
-            template_detector,
-            asset_processor,
-            relationship_mapper,
-            validator,
-            config,
-        })
+    pub fn with_config(config: InventoryParserConfig) -> Self {
+        let core = InventoryParserCore::with_config(config);
+        Self { core }
     }
 
     /// Parse inventory from Excel file
     pub async fn parse_inventory(&mut self, file_path: &str) -> Result<InventoryDocument> {
-        info!("Starting inventory parsing for file: {}", file_path);
-
-        // Load and detect template
-        let workbook = self.base_parser.load_workbook(file_path).await?;
-        let template_info = self.template_detector.detect_template(&workbook)?;
-        
-        debug!("Detected template: {:?}", template_info);
-
-        // Parse assets from worksheets
-        let mut assets = Vec::new();
-        for worksheet_name in &template_info.asset_worksheets {
-            let worksheet_assets = self.parse_worksheet_assets(&workbook, worksheet_name, &template_info).await?;
-            assets.extend(worksheet_assets);
-        }
-
-        info!("Parsed {} assets from inventory", assets.len());
-
-        // Process relationships if enabled
-        let relationships = if self.config.enable_relationships {
-            self.relationship_mapper.map_relationships(&assets, &workbook, &template_info).await?
-        } else {
-            Vec::new()
-        };
-
-        // Validate inventory data
-        let validation_results = if self.config.strict_validation {
-            self.validator.validate_inventory(&assets, &relationships).await?
-        } else {
-            InventoryValidationResults::default()
-        };
-
-        // Create inventory document
-        let inventory = InventoryDocument {
-            metadata: InventoryMetadata {
-                template_type: template_info.template_type.clone(),
-                template_version: template_info.version.clone(),
-                source_file: file_path.to_string(),
-                parsed_at: chrono::Utc::now(),
-                asset_count: assets.len(),
-                relationship_count: relationships.len(),
-            },
-            assets,
-            relationships,
-            validation_results,
-            template_info,
-        };
-
-        info!("Inventory parsing completed successfully");
-        Ok(inventory)
+        self.core.parse_from_file(file_path).await
     }
 
     /// Parse assets from a specific worksheet

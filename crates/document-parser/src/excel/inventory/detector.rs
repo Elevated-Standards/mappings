@@ -323,7 +323,7 @@ impl InventoryTemplateDetector {
     fn test_header_patterns(
         &self,
         pattern: &TemplatePattern,
-        workbook: &Workbook,
+        workbook: &MockWorkbook,
         matched_worksheets: &[String],
         matched_headers: &mut HashMap<String, Vec<String>>,
         warnings: &mut Vec<String>,
@@ -366,10 +366,10 @@ impl InventoryTemplateDetector {
     }
 
     /// Extract headers from a worksheet
-    fn extract_worksheet_headers(&self, workbook: &Workbook, worksheet_name: &str) -> Result<Vec<String>> {
+    fn extract_worksheet_headers(&self, workbook: &MockWorkbook, worksheet_name: &str) -> Result<Vec<String>> {
         // This is a placeholder implementation
         // In a real implementation, this would extract the first row as headers
-        let worksheet = workbook.get_worksheet(worksheet_name)?;
+        let _worksheet_data = workbook.get_worksheet_data(worksheet_name)?;
         
         // For now, return some common inventory headers
         Ok(vec![
@@ -520,7 +520,7 @@ impl InventoryTemplateDetector {
     /// Create custom template for unrecognized formats
     fn create_custom_template(
         &self,
-        workbook: &Workbook,
+        workbook: &MockWorkbook,
         worksheet_names: &[String],
     ) -> Result<InventoryTemplateInfo> {
         info!("Creating custom template for unrecognized format");
@@ -534,17 +534,7 @@ impl InventoryTemplateDetector {
         })
     }
 
-    /// Extract worksheet names from workbook
-    fn extract_worksheet_names(&self, workbook: &Workbook) -> Result<Vec<String>> {
-        // This is a placeholder implementation
-        // In a real implementation, this would extract actual worksheet names
-        Ok(vec![
-            "Hardware Inventory".to_string(),
-            "Software Inventory".to_string(),
-            "Network Devices".to_string(),
-            "Asset Relationships".to_string(),
-        ])
-    }
+
 
     /// Create default template patterns
     fn create_default_patterns() -> Vec<TemplatePattern> {

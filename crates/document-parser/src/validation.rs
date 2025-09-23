@@ -19,6 +19,7 @@ pub mod rules;
 pub mod confidence;
 pub mod overrides;
 pub mod reports;
+pub mod poam_reports;
 pub mod validators;
 pub mod poam_validator;
 
@@ -57,6 +58,11 @@ pub use reports::{
     PerformanceTrends, IssueTrends, HistoricalQualityScore, HistoricalPerformanceData,
     CommonIssueInfo, IssueRateDataPoint, TrendRecommendation, CachedReport,
     HistoricalReportData, ReportGenerationMetrics,
+};
+pub use poam_reports::{
+    PoamReportGenerator, PoamReportExporter, PoamVisualizationEngine,
+    PoamValidationReport, PoamReportType, PoamReportFormat, ProcessingSummary,
+    ValidationResults, ComplianceStatus, RecommendationCategory, RecommendationPriority,
 };
 pub use validators::{
     ColumnValidator, DocumentValidator, ColumnValidationConfig, DocumentValidationConfig,

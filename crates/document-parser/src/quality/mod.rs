@@ -14,7 +14,11 @@ pub mod compliance;
 
 pub use poam_quality::*;
 pub use completeness::*;
-pub use accuracy::*;
+pub use accuracy::{
+    AccuracyValidator, AccuracyResult, FieldAccuracyStats, ValidationRuleResult,
+    AccuracyConfig, AccuracyThresholds, AccuracySummary, ValidationRuleExecutor,
+    FieldAccuracyAnalyzer
+};
 pub use consistency::*;
 pub use compliance::{
     ComplianceAssessor, ComplianceResult, ComplianceCheckResult, ComplianceViolation,

@@ -96,7 +96,7 @@ pub struct WorksheetMetadata {
 }
 
 /// Type of worksheet content
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum WorksheetType {
     /// Regular worksheet
     Worksheet,
@@ -106,6 +106,10 @@ pub enum WorksheetType {
     Macro,
     /// Dialog sheet
     Dialog,
+    /// Data-focused worksheet
+    Data,
+    /// Summary or calculation worksheet
+    Summary,
     /// Unknown type
     Unknown,
 }
@@ -332,6 +336,40 @@ impl ValidationConfig {
             check_injection: false,
             custom_rules: Vec::new(),
             auto_fix: true,
+        }
+    }
+
+    /// Create lenient validation configuration (alias for permissive)
+    #[must_use]
+    pub fn lenient() -> Self {
+        Self::permissive()
+    }
+
+    /// Create minimal validation configuration
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self {
+            strict_mode: false,
+            max_string_length: 1_048_576, // 1MB max in minimal mode
+            sanitize_content: false,
+            validate_types: false,
+            check_injection: false,
+            custom_rules: Vec::new(),
+            auto_fix: true,
+        }
+    }
+
+    /// Create debug validation configuration
+    #[must_use]
+    pub fn debug() -> Self {
+        Self {
+            strict_mode: true,
+            max_string_length: 4_096, // 4KB max in debug mode
+            sanitize_content: true,
+            validate_types: true,
+            check_injection: true,
+            custom_rules: Vec::new(),
+            auto_fix: false, // Don't auto-fix in debug mode
         }
     }
 }

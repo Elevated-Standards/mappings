@@ -7,11 +7,13 @@
 
 pub mod core;
 pub mod poam;
+pub mod inventory;
 pub mod types;
 pub mod validation;
 
 // Re-export main types for convenience
 pub use core::ExcelParser;
 pub use poam::{PoamParser, PoamItem, PoamParseResult};
+pub use inventory::{InventoryParser, Asset, InventoryDocument, AssetType, AssetCategory};
 pub use types::*;
 pub use validation::ExcelValidator;

@@ -14,8 +14,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Data visualization engine for charts and graphs
   - Caching system for performance optimization
   - Comprehensive test suite for all report functionality
-
-### Added
+- Inventory-Specific Excel Parser for FedRAMP Integrated Inventory Workbooks
+  - Specialized parsing for asset-specific handling and complex inventory structures
+  - Template detection for FedRAMP, network, and software inventory formats
+  - Asset categorization with support for hardware, software, network, virtual, data, and cloud assets
+  - Relationship mapping for discovering asset dependencies and network topology
+  - Comprehensive validation with field-level, asset-level, and relationship-level checks
+  - Data enrichment and transformation capabilities for inventory processing
 - Complete compliance dashboard frontend implementation with React 19.1.1 and TypeScript
 - Responsive layout system with mobile-first design and CSS Grid/Flexbox
 - Comprehensive component library for compliance data visualization including:

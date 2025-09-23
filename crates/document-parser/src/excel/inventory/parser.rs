@@ -6,7 +6,7 @@
 //! the various components of inventory processing.
 
 use super::types::*;
-use super::{InventoryTemplateDetector, AssetProcessor, RelationshipMapper, InventoryValidator};
+use super::{InventoryTemplateDetector, AssetProcessor, RelationshipMapper, InventoryValidator, InventoryParserConfig};
 use crate::Result;
 use fedramp_core::Error;
 use serde::{Deserialize, Serialize};

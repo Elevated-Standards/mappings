@@ -11,6 +11,8 @@ pub mod detector;
 pub mod processor;
 pub mod validator;
 pub mod mapper;
+pub mod column_mapper;
+pub mod transformers;
 
 pub use types::*;
 pub use parser::*;
@@ -18,8 +20,10 @@ pub use detector::*;
 pub use processor::*;
 pub use validator::*;
 pub use mapper::*;
+pub use column_mapper::*;
+pub use transformers::*;
 
-use super::parser::{InventoryParserCore, MockWorkbook};
+use parser::{InventoryParserCore, MockWorkbook};
 use crate::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -82,119 +86,22 @@ impl InventoryParser {
         self.core.parse_from_file(file_path).await
     }
 
-    /// Parse assets from a specific worksheet
-    async fn parse_worksheet_assets(
-        &mut self,
-        workbook: &crate::excel::core::Workbook,
-        worksheet_name: &str,
-        template_info: &InventoryTemplateInfo,
-    ) -> Result<Vec<Asset>> {
-        debug!("Parsing assets from worksheet: {}", worksheet_name);
 
-        let worksheet = workbook.get_worksheet(worksheet_name)?;
-        let asset_type = self.determine_asset_type(worksheet_name, template_info);
-        
-        let mut assets = Vec::new();
-        let headers = self.extract_headers(&worksheet)?;
-        let data_rows = self.extract_data_rows(&worksheet, &headers)?;
-
-        for (row_index, row_data) in data_rows.iter().enumerate() {
-            match self.asset_processor.process_asset_row(
-                row_data,
-                &headers,
-                asset_type.clone(),
-                template_info,
-                row_index + 2, // Account for header row
-            ).await {
-                Ok(asset) => assets.push(asset),
-                Err(e) => {
-                    warn!("Failed to process asset at row {}: {}", row_index + 2, e);
-                    if self.config.strict_validation {
-                        return Err(e);
-                    }
-                }
-            }
-
-            // Check max assets limit
-            if let Some(max_assets) = self.config.max_assets {
-                if assets.len() >= max_assets {
-                    warn!("Reached maximum asset limit: {}", max_assets);
-                    break;
-                }
-            }
-        }
-
-        debug!("Parsed {} assets from worksheet {}", assets.len(), worksheet_name);
-        Ok(assets)
-    }
-
-    /// Determine asset type from worksheet name
-    fn determine_asset_type(&self, worksheet_name: &str, template_info: &InventoryTemplateInfo) -> AssetType {
-        let name_lower = worksheet_name.to_lowercase();
-        
-        if name_lower.contains("hardware") || name_lower.contains("server") || name_lower.contains("device") {
-            AssetType::Hardware
-        } else if name_lower.contains("software") || name_lower.contains("application") || name_lower.contains("app") {
-            AssetType::Software
-        } else if name_lower.contains("network") || name_lower.contains("router") || name_lower.contains("switch") {
-            AssetType::Network
-        } else if name_lower.contains("virtual") || name_lower.contains("vm") || name_lower.contains("container") {
-            AssetType::Virtual
-        } else if name_lower.contains("data") || name_lower.contains("database") || name_lower.contains("storage") {
-            AssetType::Data
-        } else if name_lower.contains("cloud") || name_lower.contains("service") {
-            AssetType::Cloud
-        } else {
-            // Default based on template type
-            match template_info.template_type {
-                InventoryTemplateType::FedRampIntegrated => AssetType::Hardware,
-                InventoryTemplateType::NetworkInventory => AssetType::Network,
-                InventoryTemplateType::SoftwareInventory => AssetType::Software,
-                InventoryTemplateType::Custom => AssetType::Hardware,
-            }
-        }
-    }
-
-    /// Extract headers from worksheet
-    fn extract_headers(&self, worksheet: &crate::excel::core::Worksheet) -> Result<Vec<String>> {
-        // Implementation would extract headers from first row
-        // This is a placeholder for the actual implementation
-        Ok(vec![
-            "Asset ID".to_string(),
-            "Asset Name".to_string(),
-            "Asset Type".to_string(),
-            "Description".to_string(),
-            "Owner".to_string(),
-            "Environment".to_string(),
-            "Criticality".to_string(),
-        ])
-    }
-
-    /// Extract data rows from worksheet
-    fn extract_data_rows(
-        &self,
-        worksheet: &crate::excel::core::Worksheet,
-        headers: &[String],
-    ) -> Result<Vec<HashMap<String, String>>> {
-        // Implementation would extract data rows
-        // This is a placeholder for the actual implementation
-        Ok(Vec::new())
-    }
 
     /// Get parser configuration
     pub fn get_config(&self) -> &InventoryParserConfig {
-        &self.config
+        self.core.get_config()
     }
 
     /// Update parser configuration
     pub fn update_config(&mut self, config: InventoryParserConfig) {
-        self.config = config;
+        self.core.update_config(config);
     }
 }
 
 impl Default for InventoryParser {
     fn default() -> Self {
-        Self::new().expect("Failed to create default inventory parser")
+        Self::new()
     }
 }
 
